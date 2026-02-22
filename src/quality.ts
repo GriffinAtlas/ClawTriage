@@ -1,7 +1,7 @@
 import type { PR, QualityBreakdown } from "./types.js";
 
 const FORMAT_REGEX =
-  /^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\(.+\))?!?:\s.+/;
+  /^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert|hotfix)(\(.+\))?!?:\s.+/;
 
 function scoreDiffSize(pr: PR): number {
   const totalChanges = pr.additions + pr.deletions;
