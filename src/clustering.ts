@@ -74,6 +74,12 @@ export function clusterDuplicates(
     groups.get(root)!.push(entry.number);
   }
 
+  // Build a lookup map for O(1) entry access during cluster building
+  const entryByNumber = new Map<number, CachedEntry>();
+  for (const entry of validEntries) {
+    entryByNumber.set(entry.number, entry);
+  }
+
   // Build clusters (only 2+ members)
   const clusters: DuplicateCluster[] = [];
   for (const members of groups.values()) {
@@ -94,8 +100,8 @@ export function clusterDuplicates(
           pairCount++;
         } else {
           // Compute similarity for pairs not above threshold but in same cluster via transitivity
-          const entryI = validEntries.find((e) => e.number === members[i])!;
-          const entryJ = validEntries.find((e) => e.number === members[j])!;
+          const entryI = entryByNumber.get(members[i])!;
+          const entryJ = entryByNumber.get(members[j])!;
           const computedSim = cosineSimilarity(entryI.embedding, entryJ.embedding);
           totalSim += computedSim;
           pairCount++;

@@ -95,7 +95,14 @@ Reply with ONLY valid JSON matching this schema:
     return { alignment: "strays", reason: "Unparseable model response" };
   }
 
-  const parsed = AlignmentSchema.safeParse(JSON.parse(jsonMatch[0]));
+  let rawParsed: unknown;
+  try {
+    rawParsed = JSON.parse(jsonMatch[0]);
+  } catch {
+    return { alignment: "strays", reason: "Malformed JSON in model response" };
+  }
+
+  const parsed = AlignmentSchema.safeParse(rawParsed);
   if (!parsed.success) {
     return { alignment: "strays", reason: "Invalid model response" };
   }
