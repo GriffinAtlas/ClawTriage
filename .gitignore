@@ -1,0 +1,20 @@
+# Environment and secrets
+.env
+
+# Cache files (too large for git, rebuilt on first run)
+.clawtriage-cache.json
+
+# Internal planning docs (not for public repo)
+CLAWTRIAGE_MASTER_PLAN.md
+IMPLEMENTATION_PLAN.md
+IMPLEMENTATION_ANALYSIS.md
+
+# Dependencies
+node_modules/
+
+# Packages
+*.tgz
+
+# OS files
+.DS_Store
+Thumbs.db
