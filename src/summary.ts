@@ -25,13 +25,17 @@ export function buildSummaryIssue(result: BatchResult): { title: string; body: s
   lines.push(`| Vision: rejects | ${stats.visionRejects} |`);
   lines.push(``);
 
-  // Duplicate clusters
+  // Duplicate clusters (capped)
   if (clusters.length > 0) {
-    lines.push(`### Duplicate Clusters\n`);
+    const shownClusters = clusters.slice(0, SECTION_ROW_LIMIT);
+    const clusterSuffix = clusters.length > SECTION_ROW_LIMIT
+      ? ` (showing ${SECTION_ROW_LIMIT} of ${clusters.length})`
+      : ``;
+    lines.push(`### Duplicate Clusters${clusterSuffix}\n`);
     const entryMap = new Map<number, BatchTriageEntry>();
     for (const e of entries) entryMap.set(e.prNumber, e);
 
-    clusters.forEach((cluster: DuplicateCluster, i: number) => {
+    shownClusters.forEach((cluster: DuplicateCluster, i: number) => {
       lines.push(
         `**Cluster ${i + 1}** (avg similarity: ${Math.round(cluster.avgSimilarity * 100)}%) — Canonical: #${cluster.canonical}`,
       );
@@ -123,7 +127,7 @@ export function buildSummaryIssue(result: BatchResult): { title: string; body: s
   const preambleLength = lines.join("\n").length;
   const footerLength = FOOTER.length;
   const headerLength = tableHeader.join("\n").length + tableFooter.join("\n").length;
-  const budgetForRows = GITHUB_BODY_LIMIT - preambleLength - footerLength - headerLength - 500;
+  const budgetForRows = GITHUB_BODY_LIMIT - preambleLength - footerLength - headerLength - 1000;
 
   lines.push(...tableHeader);
 
