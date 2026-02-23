@@ -4,7 +4,7 @@ import { fetchFileFromRepo } from "./github.js";
 
 let anthropic: Anthropic | null = null;
 
-function getAnthropic(): Anthropic {
+export function getAnthropic(): Anthropic {
   if (!anthropic) {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
@@ -15,7 +15,7 @@ function getAnthropic(): Anthropic {
   return anthropic;
 }
 
-const AlignmentSchema = z.object({
+export const AlignmentSchema = z.object({
   alignment: z.enum(["fits", "strays", "rejects"]),
   reason: z.string(),
 });

@@ -8,6 +8,7 @@
   "main": "dist/index.js",
   "scripts": {
     "triage": "tsx src/index.ts triage",
+    "batch": "tsx src/index.ts batch",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

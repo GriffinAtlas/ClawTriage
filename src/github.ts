@@ -146,6 +146,24 @@ export async function fetchFileFromRepo(
   }
 }
 
+export async function createIssue(
+  owner: string,
+  repo: string,
+  title: string,
+  body: string,
+  labels?: string[],
+): Promise<number> {
+  const kit = getOctokit();
+  return withRetry(async () => {
+    const { data, headers } = await kit.rest.issues.create({
+      owner, repo, title, body, labels,
+    });
+    logRateLimit(headers as Record<string, string | undefined>);
+    console.log(`[GitHub API] Issue #${data.number} created`);
+    return data.number;
+  });
+}
+
 export async function postComment(
   owner: string,
   repo: string,

@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { fetchFileFromRepo } from "./github.js";
 let anthropic = null;
-function getAnthropic() {
+export function getAnthropic() {
     if (!anthropic) {
         const apiKey = process.env.ANTHROPIC_API_KEY;
         if (!apiKey) {
@@ -12,7 +12,7 @@ function getAnthropic() {
     }
     return anthropic;
 }
-const AlignmentSchema = z.object({
+export const AlignmentSchema = z.object({
     alignment: z.enum(["fits", "strays", "rejects"]),
     reason: z.string(),
 });

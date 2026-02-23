@@ -1,4 +1,4 @@
-const FORMAT_REGEX = /^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\(.+\))?!?:\s.+/;
+export const FORMAT_REGEX = /^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\(.+\))?!?:\s.+/;
 function scoreDiffSize(pr) {
     const totalChanges = pr.additions + pr.deletions;
     if (totalChanges <= 500)
@@ -31,6 +31,15 @@ function scoreSingleTopic(pr) {
 }
 function scoreFormat(pr) {
     return FORMAT_REGEX.test(pr.title) ? 2.5 : 0.0;
+}
+export function scorePartialPR(pr) {
+    const bodyLength = pr.body.trim().length;
+    const hasDescription = bodyLength > 300 ? 2.5 : bodyLength > 150 ? 1.5 : bodyLength > 50 ? 0.5 : 0.0;
+    const followsFormat = FORMAT_REGEX.test(pr.title) ? 2.5 : 0.0;
+    return {
+        score: Math.round((hasDescription + followsFormat) * 10) / 10,
+        breakdown: { hasDescription, followsFormat },
+    };
 }
 export function scorePR(pr) {
     const breakdown = {

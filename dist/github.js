@@ -112,6 +112,17 @@ export async function fetchFileFromRepo(owner, repo, path) {
         throw err;
     }
 }
+export async function createIssue(owner, repo, title, body, labels) {
+    const kit = getOctokit();
+    return withRetry(async () => {
+        const { data, headers } = await kit.rest.issues.create({
+            owner, repo, title, body, labels,
+        });
+        logRateLimit(headers);
+        console.log(`[GitHub API] Issue #${data.number} created`);
+        return data.number;
+    });
+}
 export async function postComment(owner, repo, prNumber, body) {
     const kit = getOctokit();
     await withRetry(async () => {

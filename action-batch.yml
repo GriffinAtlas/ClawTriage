@@ -1,0 +1,77 @@
+name: ClawTriage Batch
+description: Batch triage all open PRs — dedup clusters, quality scores, vision alignment
+
+inputs:
+  github-token:
+    description: GitHub token with issues write permission
+    required: true
+  openai-api-key:
+    description: OpenAI API key for embeddings
+    required: true
+  anthropic-api-key:
+    description: Anthropic API key for vision alignment
+    required: true
+  repo:
+    description: Target repo (owner/repo)
+    required: false
+    default: ${{ github.repository }}
+  similarity-threshold:
+    description: Cosine similarity threshold (0-1)
+    required: false
+    default: "0.82"
+  skip-vision:
+    description: Skip vision alignment (embeddings + quality only)
+    required: false
+    default: "false"
+  post-issue:
+    description: Post summary issue to repo
+    required: false
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Node 20
+      uses: actions/setup-node@v4
+      with:
+        node-version: "20"
+
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v3
+      with:
+        version: 9
+
+    - name: Install dependencies
+      shell: bash
+      run: pnpm install --frozen-lockfile
+      working-directory: ${{ github.action_path }}
+
+    - name: Build
+      shell: bash
+      run: pnpm build
+      working-directory: ${{ github.action_path }}
+
+    - name: Restore embedding cache
+      uses: actions/cache@v4
+      with:
+        path: |
+          ${{ github.workspace }}/.clawtriage-cache.json
+          ${{ github.workspace }}/.clawtriage-enrichment-cache.json
+        key: clawtriage-batch-${{ inputs.repo }}-${{ github.run_id }}
+        restore-keys: |
+          clawtriage-batch-${{ inputs.repo }}-
+
+    - name: Run ClawTriage Batch
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        OPENAI_API_KEY: ${{ inputs.openai-api-key }}
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
+        CLAWTRIAGE_REPO: ${{ inputs.repo }}
+        SIMILARITY_THRESHOLD: ${{ inputs.similarity-threshold }}
+        CACHE_PATH: ${{ github.workspace }}/.clawtriage-cache.json
+        ENRICHMENT_CACHE_PATH: ${{ github.workspace }}/.clawtriage-enrichment-cache.json
+        SKIP_VISION: ${{ inputs.skip-vision }}
+        POST_COMMENT: ${{ inputs.post-issue }}
+      run: node dist/index.js batch
