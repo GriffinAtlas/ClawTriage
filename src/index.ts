@@ -89,8 +89,12 @@ async function runBatch(): Promise<void> {
   const safeRepo = repoSlug.replace("/", "-");
   const dateStamp = result.timestamp.split("T")[0];
   const jsonPath = `clawtriage-batch-${safeRepo}-${dateStamp}.json`;
-  fs.writeFileSync(jsonPath, JSON.stringify(result, null, 2), "utf-8");
-  console.log(`[ClawTriage] Full batch data written to ${jsonPath}`);
+  try {
+    fs.writeFileSync(jsonPath, JSON.stringify(result, null, 2), "utf-8");
+    console.log(`[ClawTriage] Full batch data written to ${jsonPath}`);
+  } catch (err) {
+    console.error(`[ClawTriage] Failed to write batch JSON to ${jsonPath}:`, (err as Error).message);
+  }
 
   const { title, body } = buildSummaryIssue(result);
 

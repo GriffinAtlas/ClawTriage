@@ -203,17 +203,19 @@ export async function createLabelIfMissing(
   color = "ededed",
 ): Promise<void> {
   const kit = getOctokit();
-  try {
-    await kit.rest.issues.createLabel({ owner, repo, name, color });
-    console.log(`[GitHub API] Label "${name}" created`);
-  } catch (err) {
-    const status = (err as { status?: number }).status;
-    if (status === 422) {
-      // Label already exists — nothing to do
-      return;
+  return withRetry(async () => {
+    try {
+      await kit.rest.issues.createLabel({ owner, repo, name, color });
+      console.log(`[GitHub API] Label "${name}" created`);
+    } catch (err) {
+      const status = (err as { status?: number }).status;
+      if (status === 422) {
+        // Label already exists — nothing to do
+        return;
+      }
+      throw err;
     }
-    throw err;
-  }
+  });
 }
 
 export async function postComment(

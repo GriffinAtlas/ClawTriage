@@ -55,23 +55,27 @@ export async function batchTriage(
     const texts = needsEmbedding.map((pr) =>
       sanitize(`${pr.title} ${pr.body.slice(0, 500)}`),
     );
-    const embeddings = await batchEmbed(texts);
-    const now = new Date().toISOString();
+    try {
+      const embeddings = await batchEmbed(texts);
+      const now = new Date().toISOString();
 
-    for (let i = 0; i < needsEmbedding.length; i++) {
-      const embedding = embeddings.get(i);
-      if (!embedding) continue;
-      cache.entries = upsertEntry(cache.entries, {
-        number: needsEmbedding[i].number,
-        title: needsEmbedding[i].title,
-        body: needsEmbedding[i].body.slice(0, 500),
-        embedding,
-        cachedAt: now,
-      });
+      for (let i = 0; i < needsEmbedding.length; i++) {
+        const embedding = embeddings.get(i);
+        if (!embedding) continue;
+        cache.entries = upsertEntry(cache.entries, {
+          number: needsEmbedding[i].number,
+          title: needsEmbedding[i].title,
+          body: needsEmbedding[i].body.slice(0, 500),
+          embedding,
+          cachedAt: now,
+        });
+      }
+      cache.lastRebuilt = now;
+      cache.prCount = cache.entries.length;
+      saveCache(cachePath, cache);
+    } catch (err) {
+      console.error(`[Batch] Embedding failed, continuing without new embeddings:`, (err as Error).message);
     }
-    cache.lastRebuilt = now;
-    cache.prCount = cache.entries.length;
-    saveCache(cachePath, cache);
   }
 
   // 3. Cluster duplicates (only among currently open PRs)

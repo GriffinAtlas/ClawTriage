@@ -35,7 +35,13 @@ async function rebuildCache(
     sanitize(`${pr.title} ${pr.body.slice(0, 500)}`),
   );
 
-  const embeddings = await batchEmbed(texts);
+  let embeddings: Map<number, number[]>;
+  try {
+    embeddings = await batchEmbed(texts);
+  } catch (err) {
+    console.error(`[Triage] Embedding failed during cache rebuild:`, (err as Error).message);
+    embeddings = new Map();
+  }
   const entries: CachedEntry[] = [];
   const now = new Date().toISOString();
 
@@ -196,8 +202,17 @@ export async function triagePR(
   console.log(`[Triage] Quality score: ${qualityScore}/10`);
 
   const visionDoc = await fetchVisionDoc(owner, repo);
-  const { alignment: visionAlignment, reason: visionReason } =
-    await checkAlignment(pr.title, pr.body, pr.fileList, visionDoc);
+  let visionAlignment: "fits" | "strays" | "rejects";
+  let visionReason: string;
+  try {
+    const result = await checkAlignment(pr.title, pr.body, pr.fileList, visionDoc);
+    visionAlignment = result.alignment;
+    visionReason = result.reason;
+  } catch (err) {
+    console.error(`[Triage] Vision alignment failed, degrading to "strays":`, (err as Error).message);
+    visionAlignment = "strays";
+    visionReason = `Vision check error: ${(err as Error).message}`;
+  }
   console.log(`[Triage] Vision alignment: ${visionAlignment} — ${visionReason}`);
 
   const recommendedAction = deriveAction(isDuplicate, qualityScore, visionAlignment);
