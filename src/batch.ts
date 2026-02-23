@@ -74,9 +74,11 @@ export async function batchTriage(
     saveCache(cachePath, cache);
   }
 
-  // 3. Cluster duplicates
+  // 3. Cluster duplicates (only among currently open PRs)
   console.log(`[Batch] Clustering duplicates (threshold: ${similarityThreshold})...`);
-  const clusters: DuplicateCluster[] = clusterDuplicates(cache.entries, similarityThreshold);
+  const openPRNumbers = new Set(batchPRs.map((pr) => pr.number));
+  const openCacheEntries = cache.entries.filter((e) => openPRNumbers.has(e.number));
+  const clusters: DuplicateCluster[] = clusterDuplicates(openCacheEntries, similarityThreshold);
   console.log(`[Batch] Found ${clusters.length} duplicate clusters`);
 
   // Build PR-to-cluster index

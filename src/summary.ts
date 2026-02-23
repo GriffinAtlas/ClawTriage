@@ -118,7 +118,7 @@ export function buildSummaryIssue(result: BatchResult): { title: string; body: s
   const preambleLength = lines.join("\n").length;
   const footerLength = FOOTER.length;
   const headerLength = tableHeader.join("\n").length + tableFooter.join("\n").length;
-  const budgetForRows = GITHUB_BODY_LIMIT - preambleLength - footerLength - headerLength - 200;
+  const budgetForRows = GITHUB_BODY_LIMIT - preambleLength - footerLength - headerLength - 500;
 
   lines.push(...tableHeader);
 
