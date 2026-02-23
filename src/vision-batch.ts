@@ -79,9 +79,14 @@ export async function pollVisionBatch(
 
   // Poll until batch ends, with retry on transient failures
   const MAX_CONSECUTIVE_FAILURES = 5;
+  const MAX_POLL_DURATION_MS = 60 * 60 * 1000; // 1 hour overall timeout
   let consecutiveFailures = 0;
+  const pollStart = Date.now();
 
   while (true) {
+    if (Date.now() - pollStart > MAX_POLL_DURATION_MS) {
+      throw new Error(`Vision batch polling timed out after ${MAX_POLL_DURATION_MS / 60000} minutes`);
+    }
     let batch;
     try {
       batch = await client.beta.messages.batches.retrieve(batchId);
