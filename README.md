@@ -258,6 +258,8 @@ src/
 - `@octokit/rest` — GitHub API
 - `openai` — text-embedding-3-small
 - `@anthropic-ai/sdk` — claude-haiku-4-5-20251001
+- `zod` — response schema validation
+- `vitest` — test framework (170 tests)
 - GitHub composite action
 
 ## License

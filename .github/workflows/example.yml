@@ -11,7 +11,7 @@ jobs:
       pull-requests: write
       contents: read
     steps:
-      - uses: GriffinAtlas/clawtriage@v1
+      - uses: GriffinAtlas/clawtriage@v2
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
