@@ -14,10 +14,31 @@ function getOctokit(): Octokit {
   return octokit;
 }
 
+let lastRateLimitRemaining = Infinity;
+let lastRateLimitReset = 0;
+
+function trackRateLimit(headers: Record<string, string | undefined>): void {
+  const remaining = Number(headers["x-ratelimit-remaining"] ?? -1);
+  const reset = Number(headers["x-ratelimit-reset"] ?? 0);
+  if (remaining >= 0) lastRateLimitRemaining = remaining;
+  if (reset > 0) lastRateLimitReset = reset;
+}
+
+export async function waitIfRateLimited(): Promise<void> {
+  if (lastRateLimitRemaining > 10) return;
+  const waitMs = (lastRateLimitReset * 1000) - Date.now() + 5000;
+  if (waitMs > 0 && waitMs < 3700_000) {
+    console.log(`[GitHub API] Only ${lastRateLimitRemaining} requests remaining, waiting ${Math.ceil(waitMs / 1000)}s for reset...`);
+    await new Promise((r) => setTimeout(r, waitMs));
+    lastRateLimitRemaining = Infinity;
+  }
+}
+
 function logRateLimit(headers: Record<string, string | undefined>): void {
   const remaining = headers["x-ratelimit-remaining"];
   const limit = headers["x-ratelimit-limit"];
   const reset = headers["x-ratelimit-reset"];
+  trackRateLimit(headers);
   if (remaining !== undefined && limit !== undefined) {
     console.log(
       `[GitHub API] Rate limit: ${remaining}/${limit} remaining` +
@@ -48,7 +69,18 @@ async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
     }
 
     if ((error.status === 403 || error.status === 429) && error.response) {
-      logRateLimit(error.response.headers);
+      const headers = error.response.headers;
+      logRateLimit(headers);
+      const remaining = Number(headers["x-ratelimit-remaining"] ?? -1);
+      const reset = Number(headers["x-ratelimit-reset"] ?? 0);
+      if (remaining === 0 && reset > 0) {
+        const waitMs = (reset * 1000) - Date.now() + 5000;
+        if (waitMs > 0 && waitMs < 3700_000) {
+          console.log(`[GitHub API] Primary rate limit exhausted, waiting ${Math.ceil(waitMs / 1000)}s for reset...`);
+          await new Promise((r) => setTimeout(r, waitMs));
+          return await fn();
+        }
+      }
     }
     throw err;
   }

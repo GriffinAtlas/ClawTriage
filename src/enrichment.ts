@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { EnrichmentCache, EnrichedPRData } from "./types.js";
-import { fetchPR } from "./github.js";
+import { fetchPR, waitIfRateLimited } from "./github.js";
 
 function emptyEnrichmentCache(): EnrichmentCache {
   return {
@@ -71,9 +71,11 @@ export async function enrichPRs(
   );
 
   let enrichedCount = 0;
+  const startTime = Date.now();
 
   for (const prNumber of uncached) {
     try {
+      await waitIfRateLimited();
       const pr = await fetchPR(owner, repo, prNumber);
       const data: EnrichedPRData & { cachedAt: string } = {
         additions: pr.additions,
@@ -86,7 +88,13 @@ export async function enrichPRs(
       enrichedCount++;
 
       if (enrichedCount % 50 === 0) {
-        console.log(`[Enrichment] Progress: ${enrichedCount}/${uncached.length} PRs enriched`);
+        const elapsedSec = (Date.now() - startTime) / 1000;
+        const rate = enrichedCount / elapsedSec;
+        const remaining = uncached.length - enrichedCount;
+        const etaSec = Math.ceil(remaining / rate);
+        const etaMin = Math.floor(etaSec / 60);
+        const etaStr = etaMin > 0 ? `~${etaMin}m ${etaSec % 60}s remaining` : `~${etaSec}s remaining`;
+        console.log(`[Enrichment] Progress: ${enrichedCount}/${uncached.length} PRs enriched (${etaStr})`);
         cache.lastUpdated = new Date().toISOString();
         saveEnrichmentCache(cachePath, cache);
       }

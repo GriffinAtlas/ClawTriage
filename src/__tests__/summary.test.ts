@@ -107,6 +107,19 @@ describe("buildSummaryIssue", () => {
     expect(mergeCandidatesSection).not.toContain("OK PR");
   });
 
+  it("shows top merge candidates by quality alone when vision not run", () => {
+    const entries = [
+      makeEntry({ prNumber: 1, qualityScore: 9, visionAlignment: "pending", title: "Great PR" }),
+      makeEntry({ prNumber: 2, qualityScore: 5, visionAlignment: "pending", title: "OK PR" }),
+    ];
+    const { body } = buildSummaryIssue(makeResult({ entries }));
+    expect(body).toContain("Top Merge Candidates");
+    expect(body).toContain("vision not run");
+    expect(body).toContain("Great PR");
+    const mergeCandidatesSection = body.split("### Top Merge Candidates")[1]?.split("###")[0] ?? "";
+    expect(mergeCandidatesSection).not.toContain("OK PR");
+  });
+
   it("includes needs revision section", () => {
     const entries = [
       makeEntry({ prNumber: 5, qualityScore: 2, title: "Bad PR" }),

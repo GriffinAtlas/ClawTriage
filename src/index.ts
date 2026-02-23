@@ -1,4 +1,5 @@
 import "dotenv/config";
+import fs from "node:fs";
 import { triagePR } from "./triage.js";
 import { postComment, createIssue } from "./github.js";
 import { batchTriage } from "./batch.js";
@@ -70,8 +71,9 @@ async function runBatch(): Promise<void> {
     process.exit(1);
   }
   const [owner, repo] = repoSlug.split("/");
-  const cachePath = process.env.CACHE_PATH || ".clawtriage-cache.json";
-  const enrichmentCachePath = process.env.ENRICHMENT_CACHE_PATH || ".clawtriage-enrichment-cache.json";
+  const safeSlug = repoSlug.replace("/", "-");
+  const cachePath = process.env.CACHE_PATH || `.clawtriage-cache-${safeSlug}.json`;
+  const enrichmentCachePath = process.env.ENRICHMENT_CACHE_PATH || `.clawtriage-enrichment-cache-${safeSlug}.json`;
   const similarityThreshold = parseFloat(process.env.SIMILARITY_THRESHOLD || "0.82");
   const skipVision = process.env.SKIP_VISION === "true";
   const shouldPostIssue = process.env.POST_COMMENT === "true";
@@ -82,6 +84,13 @@ async function runBatch(): Promise<void> {
   const result = await batchTriage(owner, repo, {
     cachePath, enrichmentCachePath, similarityThreshold, skipVision,
   });
+
+  // Write full JSON output
+  const safeRepo = repoSlug.replace("/", "-");
+  const dateStamp = result.timestamp.split("T")[0];
+  const jsonPath = `clawtriage-batch-${safeRepo}-${dateStamp}.json`;
+  fs.writeFileSync(jsonPath, JSON.stringify(result, null, 2), "utf-8");
+  console.log(`[ClawTriage] Full batch data written to ${jsonPath}`);
 
   const { title, body } = buildSummaryIssue(result);
 

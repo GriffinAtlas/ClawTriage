@@ -2,8 +2,11 @@
 .env
 
 # Cache files (too large for git, rebuilt on first run)
-.clawtriage-cache.json
-.clawtriage-enrichment-cache.json
+.clawtriage-cache*.json
+.clawtriage-enrichment-cache*.json
+
+# Batch output files
+clawtriage-batch-*.json
 
 # Internal planning docs (not for public repo)
 CLAWTRIAGE_MASTER_PLAN.md

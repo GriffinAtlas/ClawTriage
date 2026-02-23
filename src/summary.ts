@@ -45,15 +45,20 @@ export function buildSummaryIssue(result: BatchResult): { title: string; body: s
   }
 
   // Top merge candidates (capped)
-  const mergeCandidates = entries
-    .filter((e) => e.qualityScore >= 8 && e.visionAlignment === "fits")
-    .sort((a, b) => b.qualityScore - a.qualityScore);
+  const visionWasRun = entries.some((e) => e.visionAlignment !== "pending");
+  const mergeCandidates = visionWasRun
+    ? entries.filter((e) => e.qualityScore >= 8 && e.visionAlignment === "fits")
+    : entries.filter((e) => e.qualityScore >= 8);
+  mergeCandidates.sort((a, b) => b.qualityScore - a.qualityScore);
   if (mergeCandidates.length > 0) {
     const shown = mergeCandidates.slice(0, SECTION_ROW_LIMIT);
     const suffix = mergeCandidates.length > SECTION_ROW_LIMIT
       ? ` (top ${SECTION_ROW_LIMIT} of ${mergeCandidates.length})`
       : ``;
-    lines.push(`### Top Merge Candidates (quality >= 8, vision fits)${suffix}\n`);
+    const criteria = visionWasRun
+      ? `quality >= 8, vision fits`
+      : `quality >= 8, vision not run`;
+    lines.push(`### Top Merge Candidates (${criteria})${suffix}\n`);
     lines.push(`| PR | Quality | Title |`);
     lines.push(`|---|---|---|`);
     for (const e of shown) {
