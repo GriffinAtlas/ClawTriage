@@ -49,9 +49,30 @@ export async function pollVisionBatch(
   const client = getAnthropic();
   const results = new Map<number, { alignment: string; reason: string }>();
 
-  // Poll until batch ends
+  // Poll until batch ends, with retry on transient failures
+  const MAX_CONSECUTIVE_FAILURES = 5;
+  let consecutiveFailures = 0;
+
   while (true) {
-    const batch = await client.beta.messages.batches.retrieve(batchId);
+    let batch;
+    try {
+      batch = await client.beta.messages.batches.retrieve(batchId);
+      consecutiveFailures = 0;
+    } catch (err) {
+      consecutiveFailures++;
+      console.warn(
+        `[Vision Batch] Poll failed (${consecutiveFailures}/${MAX_CONSECUTIVE_FAILURES}):`,
+        (err as Error).message,
+      );
+      if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+        throw new Error(
+          `Vision batch polling failed after ${MAX_CONSECUTIVE_FAILURES} consecutive errors: ${(err as Error).message}`,
+        );
+      }
+      await new Promise((r) => setTimeout(r, 30_000));
+      continue;
+    }
+
     const counts = batch.request_counts;
     console.log(
       `[Vision Batch] Batch ${batchId}: ${counts.succeeded}/${counts.succeeded + counts.errored + counts.canceled + counts.expired + counts.processing} succeeded, ${counts.processing} processing`,

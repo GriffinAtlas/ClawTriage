@@ -127,19 +127,28 @@ export async function batchTriage(
   if (!skipVision) {
     const visionDoc = await fetchVisionDoc(owner, repo);
     if (visionDoc) {
-      console.log(`[Batch] Submitting vision batch...`);
-      const fileListMap = new Map<number, string[]>();
-      for (const pr of batchPRs) {
-        const enriched = enrichmentCache.entries[pr.number];
-        if (enriched) {
-          fileListMap.set(pr.number, enriched.fileList);
+      try {
+        console.log(`[Batch] Submitting vision batch...`);
+        const fileListMap = new Map<number, string[]>();
+        for (const pr of batchPRs) {
+          const enriched = enrichmentCache.entries[pr.number];
+          if (enriched) {
+            fileListMap.set(pr.number, enriched.fileList);
+          }
         }
-      }
-      visionBatchId = await submitVisionBatch(batchPRs, fileListMap, visionDoc);
-      console.log(`[Batch] Polling vision batch ${visionBatchId}...`);
-      const results = await pollVisionBatch(visionBatchId);
-      for (const [prNum, result] of results) {
-        visionResults.set(prNum, result);
+        visionBatchId = await submitVisionBatch(batchPRs, fileListMap, visionDoc);
+        console.log(`[Batch] Polling vision batch ${visionBatchId}...`);
+        const results = await pollVisionBatch(visionBatchId);
+        for (const [prNum, result] of results) {
+          visionResults.set(prNum, result);
+        }
+      } catch (err) {
+        console.error(`[Batch] Vision alignment failed, degrading gracefully:`, (err as Error).message);
+        for (const pr of batchPRs) {
+          if (!visionResults.has(pr.number)) {
+            visionResults.set(pr.number, { alignment: "error", reason: `Vision batch failed: ${(err as Error).message}` });
+          }
+        }
       }
     } else {
       for (const pr of batchPRs) {
