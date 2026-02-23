@@ -95,8 +95,15 @@ async function runBatch(): Promise<void> {
   const { title, body } = buildSummaryIssue(result);
 
   if (shouldPostIssue) {
-    const issueNumber = await createIssue(owner, repo, title, body, ["clawtriage-batch"]);
-    console.log(`[ClawTriage] Batch report posted as issue #${issueNumber}`);
+    try {
+      const issueNumber = await createIssue(owner, repo, title, body, ["clawtriage-batch"]);
+      console.log(`[ClawTriage] Batch report posted as issue #${issueNumber}`);
+    } catch (err) {
+      console.error(`[ClawTriage] Failed to post issue:`, (err as Error).message);
+      console.log(`[ClawTriage] Report saved to ${jsonPath} — you can post manually.`);
+      console.log("\n--- Batch Report Preview ---");
+      console.log(body);
+    }
   } else {
     console.log("\n--- Batch Report Preview ---");
     console.log(body);

@@ -1,6 +1,12 @@
 import type { BatchPR } from "./types.js";
 import { getAnthropic, AlignmentSchema } from "./vision.js";
 
+function sanitizeText(text: string): string {
+  // Strip unpaired surrogates and control chars that break JSON serialization
+  return text.replace(/[\uD800-\uDFFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "\uFFFD")
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "");
+}
+
 export async function submitVisionBatch(
   prs: BatchPR[],
   fileListMap: Map<number, string[]>,
@@ -10,6 +16,8 @@ export async function submitVisionBatch(
 
   const requests = prs.map((pr) => {
     const fileList = fileListMap.get(pr.number) ?? [];
+    const safeBody = sanitizeText(pr.body.slice(0, 800));
+    const safeTitle = sanitizeText(pr.title);
     return {
       custom_id: `pr-${pr.number}`,
       params: {
@@ -22,8 +30,8 @@ export async function submitVisionBatch(
 VISION.md (first 3000 chars):
 ${visionDoc.slice(0, 3000)}
 
-PR Title: ${pr.title}
-PR Description: ${pr.body.slice(0, 800)}
+PR Title: ${safeTitle}
+PR Description: ${safeBody}
 Files changed: ${fileList.slice(0, 15).join(", ")}
 
 Does this PR fit the project vision?
