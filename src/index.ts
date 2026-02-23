@@ -1,7 +1,7 @@
 import "dotenv/config";
 import fs from "node:fs";
 import { triagePR } from "./triage.js";
-import { postComment, createIssue } from "./github.js";
+import { postComment, createIssue, createLabelIfMissing } from "./github.js";
 import { batchTriage } from "./batch.js";
 import { buildSummaryIssue } from "./summary.js";
 
@@ -96,6 +96,7 @@ async function runBatch(): Promise<void> {
 
   if (shouldPostIssue) {
     try {
+      await createLabelIfMissing(owner, repo, "clawtriage-batch", "1d76db");
       const issueNumber = await createIssue(owner, repo, title, body, ["clawtriage-batch"]);
       console.log(`[ClawTriage] Batch report posted as issue #${issueNumber}`);
     } catch (err) {

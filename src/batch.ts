@@ -97,7 +97,7 @@ export async function batchTriage(
 
   // 5. Score quality
   console.log(`[Batch] Scoring quality...`);
-  const qualityResults = new Map<number, { score: number; tier: "full" | "partial" }>();
+  const qualityResults = new Map<number, { score: number; tier: "full" | "partial"; breakdown: BatchTriageEntry["qualityBreakdown"] }>();
 
   for (const pr of batchPRs) {
     const enriched = enrichmentCache.entries[pr.number];
@@ -114,11 +114,11 @@ export async function batchTriage(
         fileList: enriched.fileList,
         createdAt: pr.createdAt,
       };
-      const { score } = scorePR(fullPR);
-      qualityResults.set(pr.number, { score, tier: "full" });
+      const { score, breakdown } = scorePR(fullPR);
+      qualityResults.set(pr.number, { score, tier: "full", breakdown });
     } else {
-      const { score } = scorePartialPR({ title: pr.title, body: pr.body });
-      qualityResults.set(pr.number, { score: Math.min(score, 5.0), tier: "partial" });
+      const { score, breakdown } = scorePartialPR({ title: pr.title, body: pr.body });
+      qualityResults.set(pr.number, { score: Math.min(score, 5.0), tier: "partial", breakdown });
     }
   }
 
@@ -164,7 +164,7 @@ export async function batchTriage(
   // 7. Build entries
   console.log(`[Batch] Building triage entries...`);
   const entries: BatchTriageEntry[] = batchPRs.map((pr) => {
-    const quality = qualityResults.get(pr.number) ?? { score: 0, tier: "partial" as const };
+    const quality = qualityResults.get(pr.number) ?? { score: 0, tier: "partial" as const, breakdown: undefined };
     const vision = visionResults.get(pr.number);
     const visionAlignment = (vision?.alignment ?? "pending") as BatchTriageEntry["visionAlignment"];
     const visionReason = vision?.reason ?? "Vision not run";
@@ -186,6 +186,7 @@ export async function batchTriage(
       visionReason,
       duplicateCluster: clusterIdx,
       recommendedAction,
+      qualityBreakdown: quality.breakdown,
     };
   });
 

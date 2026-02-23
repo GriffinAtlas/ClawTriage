@@ -98,6 +98,12 @@ export interface BatchTriageEntry {
   visionReason: string;
   duplicateCluster: number | null;
   recommendedAction: "merge_candidate" | "review_duplicates" | "needs_revision" | "close" | "flag";
+  qualityBreakdown?: {
+    diffSize?: number;
+    hasDescription: number;
+    followsFormat: number;
+    singleTopic?: number;
+  };
 }
 
 /** Full batch result */

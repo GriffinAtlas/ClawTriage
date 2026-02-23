@@ -196,6 +196,26 @@ export async function createIssue(
   });
 }
 
+export async function createLabelIfMissing(
+  owner: string,
+  repo: string,
+  name: string,
+  color = "ededed",
+): Promise<void> {
+  const kit = getOctokit();
+  try {
+    await kit.rest.issues.createLabel({ owner, repo, name, color });
+    console.log(`[GitHub API] Label "${name}" created`);
+  } catch (err) {
+    const status = (err as { status?: number }).status;
+    if (status === 422) {
+      // Label already exists — nothing to do
+      return;
+    }
+    throw err;
+  }
+}
+
 export async function postComment(
   owner: string,
   repo: string,
