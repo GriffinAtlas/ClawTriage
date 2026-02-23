@@ -2,9 +2,29 @@ import type { BatchPR } from "./types.js";
 import { getAnthropic, AlignmentSchema } from "./vision.js";
 
 function sanitizeText(text: string): string {
-  // Strip unpaired surrogates and control chars that break JSON serialization
-  return text.replace(/[\uD800-\uDFFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "\uFFFD")
-    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "");
+  // Strip all lone surrogates and control chars that break JSON serialization.
+  // Well-formed surrogate pairs (emoji etc.) survive because they form valid
+  // code points; lone high/low surrogates get replaced with U+FFFD.
+  let out = "";
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    if (code >= 0xD800 && code <= 0xDBFF) {
+      const next = i + 1 < text.length ? text.charCodeAt(i + 1) : 0;
+      if (next >= 0xDC00 && next <= 0xDFFF) {
+        out += text[i] + text[i + 1];
+        i++;
+      } else {
+        out += "\uFFFD";
+      }
+    } else if (code >= 0xDC00 && code <= 0xDFFF) {
+      out += "\uFFFD";
+    } else if (code <= 0x08 || code === 0x0B || code === 0x0C || (code >= 0x0E && code <= 0x1F)) {
+      // skip control chars
+    } else {
+      out += text[i];
+    }
+  }
+  return out;
 }
 
 export async function submitVisionBatch(
