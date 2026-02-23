@@ -77,14 +77,18 @@ POST_COMMENT=true pnpm batch
 
 ### Batch Output
 
-The summary issue contains:
+Each batch run produces two outputs:
+
+**1. GitHub Issue** — A structured Markdown triage report containing:
 
 - **Summary table** — Total PRs, duplicate clusters, average quality, vision alignment breakdown
 - **Duplicate clusters** — Groups of semantically similar PRs with similarity percentages and canonical PR
-- **Top merge candidates** — PRs with quality >= 8 and vision "fits"
+- **Top merge candidates** — PRs with quality >= 8 and vision "fits" (or quality >= 8 alone when vision is skipped)
 - **Needs revision** — PRs with quality < 4
 - **Vision rejects** — PRs flagged as outside project scope with reasons
-- **Full triage table** — Every PR with score, vision result, cluster membership, and recommended action (in a collapsible `<details>` block)
+- **Full triage table** — Every PR with score, vision result, cluster membership, and recommended action (in a collapsible `<details>` block, truncated to fit GitHub's 65KB issue limit)
+
+**2. JSON file** — Full batch data written to `clawtriage-batch-{owner}-{repo}-{date}.json` with every PR's scores, clusters, and vision results. Use this for programmatic analysis when the issue report is truncated.
 
 ### Batch GitHub Action
 
@@ -126,6 +130,10 @@ jobs:
 | Vision batch 4000 PRs (claude-haiku-4-5-20251001) | ~$1.50 |
 | **Total first run** | **~$1.56** |
 | Subsequent runs (warm cache, only new PRs) | ~$0.01 + vision delta |
+
+### Rate Limiting
+
+Batch mode is rate-limit aware. When GitHub API quota runs low (< 10 requests remaining), ClawTriage automatically pauses and waits for the reset window instead of failing. Enrichment progress is checkpointed every 50 PRs, so interrupted runs resume from cache on the next invocation. For repos with 4000+ PRs, the first enrichment run may span two rate limit windows (~2 hours total).
 
 ### Recommended Actions
 
@@ -198,8 +206,8 @@ pnpm triage 6033      # triage PR #6033
 | `GITHUB_TOKEN` | Yes | — | GitHub token |
 | `OPENAI_API_KEY` | Yes | — | OpenAI API key for embeddings |
 | `ANTHROPIC_API_KEY` | Yes* | — | Anthropic API key (*not needed if `SKIP_VISION=true`) |
-| `CACHE_PATH` | No | `.clawtriage-cache.json` | Embedding cache file path |
-| `ENRICHMENT_CACHE_PATH` | No | `.clawtriage-enrichment-cache.json` | Enrichment cache file path |
+| `CACHE_PATH` | No | `.clawtriage-cache-{repo}.json` | Embedding cache file path (auto-scoped by repo) |
+| `ENRICHMENT_CACHE_PATH` | No | `.clawtriage-enrichment-cache-{repo}.json` | Enrichment cache file path (auto-scoped by repo) |
 | `SIMILARITY_THRESHOLD` | No | `0.82` | Cosine similarity threshold |
 | `SKIP_VISION` | No | `false` | Skip vision alignment |
 | `POST_COMMENT` | No | `false` | Post comment/issue to GitHub |
