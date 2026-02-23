@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  Drop-in GitHub Action that triages every incoming PR — dedup, quality score, and vision alignment — so you stop wrangling thousands of PRs by hand. Now with batch mode for triaging entire backlogs at once.
+  Drop-in GitHub Action that triages every incoming PR — dedup, quality score, and vision alignment — so you stop wrangling thousands of PRs by hand. <b>v2: batch mode for triaging entire backlogs at once.</b>
 </p>
 
 <p align="center">
@@ -101,7 +101,7 @@ jobs:
       issues: write
       contents: read
     steps:
-      - uses: GriffinAtlas/clawtriage/action-batch@v1
+      - uses: GriffinAtlas/clawtriage/action-batch@v2
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
@@ -155,7 +155,7 @@ jobs:
       pull-requests: write
       contents: read
     steps:
-      - uses: GriffinAtlas/clawtriage@v1
+      - uses: GriffinAtlas/clawtriage@v2
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
