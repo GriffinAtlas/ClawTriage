@@ -1,4 +1,4 @@
-import { getAnthropic, AlignmentSchema } from "./vision.js";
+import { getAnthropic, AlignmentSchema, getVisionSource } from "./vision.js";
 function sanitizeText(text) {
     // Strip all lone surrogates and control chars that break JSON serialization.
     // Well-formed surrogate pairs (emoji etc.) survive because they form valid
@@ -30,6 +30,7 @@ function sanitizeText(text) {
 }
 export async function submitVisionBatch(prs, fileListMap, visionDoc) {
     const client = getAnthropic();
+    const source = getVisionSource() ?? "VISION.md";
     const requests = prs.map((pr) => {
         const fileList = fileListMap.get(pr.number) ?? [];
         const safeBody = sanitizeText(pr.body.slice(0, 800));
@@ -41,9 +42,9 @@ export async function submitVisionBatch(prs, fileListMap, visionDoc) {
                 max_tokens: 200,
                 messages: [{
                         role: "user",
-                        content: `You are reviewing a pull request against a project's VISION.md.
+                        content: `You are reviewing a pull request against a project's ${source}.
 
-VISION.md (first 3000 chars):
+${source} (first 3000 chars):
 ${visionDoc.slice(0, 3000)}
 
 PR Title: ${safeTitle}

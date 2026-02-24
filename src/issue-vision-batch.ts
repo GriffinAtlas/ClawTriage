@@ -1,5 +1,5 @@
 import type { BatchIssue } from "./types.js";
-import { getAnthropic, AlignmentSchema } from "./vision.js";
+import { getAnthropic, AlignmentSchema, getVisionSource } from "./vision.js";
 
 function sanitizeText(text: string): string {
   let out = "";
@@ -29,6 +29,7 @@ export async function submitIssueVisionBatch(
   visionDoc: string,
 ): Promise<string> {
   const client = getAnthropic();
+  const source = getVisionSource() ?? "VISION.md";
 
   const requests = issues.map((issue) => {
     const safeBody = sanitizeText(issue.body.slice(0, 800));
@@ -40,9 +41,9 @@ export async function submitIssueVisionBatch(
         max_tokens: 200,
         messages: [{
           role: "user" as const,
-          content: `You are reviewing a GitHub issue against a project's VISION.md.
+          content: `You are reviewing a GitHub issue against a project's ${source}.
 
-VISION.md (first 3000 chars):
+${source} (first 3000 chars):
 ${visionDoc.slice(0, 3000)}
 
 Issue Title: ${safeTitle}

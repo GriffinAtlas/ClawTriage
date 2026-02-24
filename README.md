@@ -106,13 +106,13 @@ Four heuristic signals, zero API calls. Signals differ by item type:
 | Labels | 2.5 | Label count (2+ = 2.5) |
 | Template | 2.5 | Issue template section headers, checkboxes |
 
-### 3. VISION.md Alignment
+### 3. Vision Alignment
 Sends the item details along with the repository's `VISION.md` to Claude Haiku and gets a structured judgment:
 - **fits** — clearly within project scope
 - **strays** — tangential to the vision
 - **rejects** — outside project scope
 
-If no `VISION.md` exists, the check is skipped gracefully.
+If no `VISION.md` exists, ClawTriage falls back to `README.md` for scope alignment. If neither exists, the check is skipped gracefully.
 
 ### Recommended Actions
 

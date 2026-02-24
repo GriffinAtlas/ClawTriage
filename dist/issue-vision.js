@@ -1,17 +1,18 @@
-import { getAnthropic, AlignmentSchema } from "./vision.js";
+import { getAnthropic, AlignmentSchema, getVisionSource } from "./vision.js";
 export async function checkIssueAlignment(issueTitle, issueBody, issueLabels, visionDoc) {
     if (visionDoc === null) {
-        return { alignment: "strays", reason: "No VISION.md found in repository" };
+        return { alignment: "strays", reason: "No VISION.md or README.md found in repository" };
     }
     const client = getAnthropic();
+    const source = getVisionSource() ?? "VISION.md";
     const response = await client.messages.create({
         model: "claude-haiku-4-5-20251001",
         max_tokens: 200,
         messages: [{
                 role: "user",
-                content: `You are reviewing a GitHub issue against a project's VISION.md.
+                content: `You are reviewing a GitHub issue against a project's ${source}.
 
-VISION.md (first 3000 chars):
+${source} (first 3000 chars):
 ${visionDoc.slice(0, 3000)}
 
 Issue Title: ${issueTitle}

@@ -20,10 +20,15 @@ export const AlignmentSchema = z.object({
   reason: z.string(),
 });
 
-let visionCache: { fetched: boolean; content: string | null } = {
+let visionCache: { fetched: boolean; content: string | null; source: string | null } = {
   fetched: false,
   content: null,
+  source: null,
 };
+
+export function getVisionSource(): string | null {
+  return visionCache.source;
+}
 
 export async function fetchVisionDoc(
   owner: string,
@@ -31,16 +36,25 @@ export async function fetchVisionDoc(
 ): Promise<string | null> {
   if (visionCache.fetched) return visionCache.content;
 
-  const content = await fetchFileFromRepo(owner, repo, "VISION.md");
-  visionCache = { fetched: true, content };
-
-  if (content === null) {
-    console.log("[Vision] No VISION.md found in repository");
-  } else {
-    console.log(`[Vision] Loaded VISION.md (${content.length} chars)`);
+  // Try VISION.md first
+  const vision = await fetchFileFromRepo(owner, repo, "VISION.md");
+  if (vision !== null) {
+    visionCache = { fetched: true, content: vision, source: "VISION.md" };
+    console.log(`[Vision] Loaded VISION.md (${vision.length} chars)`);
+    return vision;
   }
 
-  return content;
+  // Fall back to README.md
+  const readme = await fetchFileFromRepo(owner, repo, "README.md");
+  if (readme !== null) {
+    visionCache = { fetched: true, content: readme, source: "README.md" };
+    console.log(`[Vision] No VISION.md found, falling back to README.md (${readme.length} chars)`);
+    return readme;
+  }
+
+  visionCache = { fetched: true, content: null, source: null };
+  console.log("[Vision] No VISION.md or README.md found in repository");
+  return null;
 }
 
 export async function checkAlignment(
@@ -50,19 +64,20 @@ export async function checkAlignment(
   visionDoc: string | null,
 ): Promise<z.infer<typeof AlignmentSchema>> {
   if (visionDoc === null) {
-    return { alignment: "strays", reason: "No VISION.md found in repository" };
+    return { alignment: "strays", reason: "No VISION.md or README.md found in repository" };
   }
 
   const client = getAnthropic();
+  const source = getVisionSource() ?? "VISION.md";
 
   const response = await client.messages.create({
     model: "claude-haiku-4-5-20251001",
     max_tokens: 200,
     messages: [{
       role: "user",
-      content: `You are reviewing a pull request against a project's VISION.md.
+      content: `You are reviewing a pull request against a project's ${source}.
 
-VISION.md (first 3000 chars):
+${source} (first 3000 chars):
 ${visionDoc.slice(0, 3000)}
 
 PR Title: ${prTitle}

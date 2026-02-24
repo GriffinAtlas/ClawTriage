@@ -1,4 +1,4 @@
-import { getAnthropic, AlignmentSchema } from "./vision.js";
+import { getAnthropic, AlignmentSchema, getVisionSource } from "./vision.js";
 function sanitizeText(text) {
     let out = "";
     for (let i = 0; i < text.length; i++) {
@@ -27,6 +27,7 @@ function sanitizeText(text) {
 }
 export async function submitIssueVisionBatch(issues, visionDoc) {
     const client = getAnthropic();
+    const source = getVisionSource() ?? "VISION.md";
     const requests = issues.map((issue) => {
         const safeBody = sanitizeText(issue.body.slice(0, 800));
         const safeTitle = sanitizeText(issue.title);
@@ -37,9 +38,9 @@ export async function submitIssueVisionBatch(issues, visionDoc) {
                 max_tokens: 200,
                 messages: [{
                         role: "user",
-                        content: `You are reviewing a GitHub issue against a project's VISION.md.
+                        content: `You are reviewing a GitHub issue against a project's ${source}.
 
-VISION.md (first 3000 chars):
+${source} (first 3000 chars):
 ${visionDoc.slice(0, 3000)}
 
 Issue Title: ${safeTitle}
