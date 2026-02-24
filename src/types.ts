@@ -131,3 +131,116 @@ export interface BatchStats {
   needsRevision: number;
   flagged: number;
 }
+
+// --- Issue triage types ---
+
+export interface Issue {
+  number: number;
+  title: string;
+  body: string;
+  user: string;
+  labels: string[];
+  milestone: string | null;
+  assignees: string[];
+  commentCount: number;
+  reactionCount: number;
+  createdAt: string;
+  isPullRequest: boolean;
+}
+
+export interface SimilarIssue {
+  number: number;
+  score: number;
+  title: string;
+}
+
+export interface IssueQualityBreakdown {
+  hasDescription: number;
+  hasReproSteps: number;
+  hasLabels: number;
+  followsTemplate: number;
+}
+
+export interface IssueTriageResult {
+  issueNumber: number;
+  isDuplicate: boolean;
+  duplicateOf: SimilarIssue[];
+  qualityScore: number;
+  qualityBreakdown: IssueQualityBreakdown;
+  visionAlignment: "fits" | "strays" | "rejects";
+  visionReason: string;
+  recommendedAction:
+    | "prioritize"
+    | "review_duplicates"
+    | "needs_info"
+    | "wontfix"
+    | "flag";
+  draftComment: string;
+}
+
+/** Lightweight issue for batch listing */
+export interface BatchIssue {
+  number: number;
+  title: string;
+  body: string;
+  user: string;
+  labels: string[];
+  createdAt: string;
+}
+
+/** Enriched data fetched per-issue */
+export interface EnrichedIssueData {
+  commentCount: number;
+  reactionCount: number;
+  linkedPRs: number;
+  milestone: string | null;
+  assignees: string[];
+}
+
+/** Cache for issue enrichment data */
+export interface IssueEnrichmentCache {
+  version: number;
+  lastUpdated: string;
+  entries: Record<number, EnrichedIssueData & { cachedAt: string }>;
+}
+
+/** One row in the batch issue triage report */
+export interface BatchIssueTriageEntry {
+  issueNumber: number;
+  title: string;
+  user: string;
+  labels: string[];
+  qualityScore: number;
+  qualityTier: "full" | "partial";
+  visionAlignment: "fits" | "strays" | "rejects" | "pending" | "error";
+  visionReason: string;
+  duplicateCluster: number | null;
+  recommendedAction: "prioritize" | "review_duplicates" | "needs_info" | "wontfix" | "flag";
+  qualityBreakdown?: IssueQualityBreakdown;
+}
+
+/** Full issue batch result */
+export interface IssueBatchResult {
+  repo: string;
+  totalIssues: number;
+  timestamp: string;
+  clusters: DuplicateCluster[];
+  entries: BatchIssueTriageEntry[];
+  stats: IssueBatchStats;
+  visionBatchId: string | null;
+}
+
+export interface IssueBatchStats {
+  totalIssues: number;
+  duplicateClusters: number;
+  duplicateIssues: number;
+  avgQuality: number;
+  visionFits: number;
+  visionStrays: number;
+  visionRejects: number;
+  visionPending: number;
+  visionErrors: number;
+  prioritize: number;
+  needsInfo: number;
+  flagged: number;
+}

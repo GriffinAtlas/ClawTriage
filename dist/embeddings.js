@@ -23,6 +23,9 @@ export async function generateEmbedding(text) {
         model: "text-embedding-3-small",
         input: sanitized,
     });
+    if (!response.data[0]) {
+        throw new Error("Empty embedding response from API");
+    }
     const embedding = response.data[0].embedding;
     if (embedding.every((v) => v === 0)) {
         throw new Error("All-zero embedding vector");
@@ -43,17 +46,22 @@ export async function batchEmbed(texts) {
         const batch = valid.slice(i, i + BATCH_SIZE);
         console.log(`[Embeddings] Processing batch ${Math.floor(i / BATCH_SIZE) + 1}` +
             ` (${batch.length} texts)...`);
-        const response = await client.embeddings.create({
-            model: "text-embedding-3-small",
-            input: batch.map((b) => b.text),
-        });
-        for (const item of response.data) {
-            const originalIndex = batch[item.index].index;
-            if (item.embedding.every((v) => v === 0)) {
-                console.warn(`[Embeddings] All-zero embedding for index ${originalIndex} — skipping`);
-                continue;
+        try {
+            const response = await client.embeddings.create({
+                model: "text-embedding-3-small",
+                input: batch.map((b) => b.text),
+            });
+            for (const item of response.data) {
+                const originalIndex = batch[item.index].index;
+                if (item.embedding.every((v) => v === 0)) {
+                    console.warn(`[Embeddings] All-zero embedding for index ${originalIndex} — skipping`);
+                    continue;
+                }
+                results.set(originalIndex, item.embedding);
             }
-            results.set(originalIndex, item.embedding);
+        }
+        catch (err) {
+            console.error(`[Embeddings] Batch ${Math.floor(i / BATCH_SIZE) + 1} failed:`, err.message);
         }
     }
     console.log(`[Embeddings] Completed: ${results.size}/${texts.length} embeddings generated`);

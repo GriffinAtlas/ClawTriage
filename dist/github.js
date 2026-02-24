@@ -10,10 +10,31 @@ function getOctokit() {
     }
     return octokit;
 }
+let lastRateLimitRemaining = Infinity;
+let lastRateLimitReset = 0;
+function trackRateLimit(headers) {
+    const remaining = Number(headers["x-ratelimit-remaining"] ?? -1);
+    const reset = Number(headers["x-ratelimit-reset"] ?? 0);
+    if (remaining >= 0)
+        lastRateLimitRemaining = remaining;
+    if (reset > 0)
+        lastRateLimitReset = reset;
+}
+export async function waitIfRateLimited() {
+    if (lastRateLimitRemaining > 10)
+        return;
+    const waitMs = (lastRateLimitReset * 1000) - Date.now() + 5000;
+    if (waitMs > 0 && waitMs < 3700_000) {
+        console.log(`[GitHub API] Only ${lastRateLimitRemaining} requests remaining, waiting ${Math.ceil(waitMs / 1000)}s for reset...`);
+        await new Promise((r) => setTimeout(r, waitMs));
+        lastRateLimitRemaining = Infinity;
+    }
+}
 function logRateLimit(headers) {
     const remaining = headers["x-ratelimit-remaining"];
     const limit = headers["x-ratelimit-limit"];
     const reset = headers["x-ratelimit-reset"];
+    trackRateLimit(headers);
     if (remaining !== undefined && limit !== undefined) {
         console.log(`[GitHub API] Rate limit: ${remaining}/${limit} remaining` +
             (reset ? `, resets at ${new Date(Number(reset) * 1000).toISOString()}` : ""));
@@ -34,7 +55,18 @@ async function withRetry(fn) {
             return await fn();
         }
         if ((error.status === 403 || error.status === 429) && error.response) {
-            logRateLimit(error.response.headers);
+            const headers = error.response.headers;
+            logRateLimit(headers);
+            const remaining = Number(headers["x-ratelimit-remaining"] ?? -1);
+            const reset = Number(headers["x-ratelimit-reset"] ?? 0);
+            if (remaining === 0 && reset > 0) {
+                const waitMs = (reset * 1000) - Date.now() + 5000;
+                if (waitMs > 0 && waitMs < 3700_000) {
+                    console.log(`[GitHub API] Primary rate limit exhausted, waiting ${Math.ceil(waitMs / 1000)}s for reset...`);
+                    await new Promise((r) => setTimeout(r, waitMs));
+                    return await fn();
+                }
+            }
         }
         throw err;
     }
@@ -97,6 +129,72 @@ export async function fetchAllOpenPRs(owner, repo) {
         return prs;
     });
 }
+export async function fetchIssue(owner, repo, issueNumber) {
+    const kit = getOctokit();
+    return withRetry(async () => {
+        const { data: issue, headers } = await kit.rest.issues.get({
+            owner,
+            repo,
+            issue_number: issueNumber,
+        });
+        logRateLimit(headers);
+        if (issue.pull_request) {
+            throw new Error(`#${issueNumber} is a pull request, not an issue`);
+        }
+        return {
+            number: issue.number,
+            title: issue.title,
+            body: issue.body ?? "",
+            user: issue.user?.login ?? "unknown",
+            labels: issue.labels
+                .map((l) => (typeof l === "string" ? l : l.name ?? ""))
+                .filter(Boolean),
+            milestone: issue.milestone?.title ?? null,
+            assignees: (issue.assignees ?? []).map((a) => a.login),
+            commentCount: issue.comments,
+            reactionCount: issue.reactions?.total_count ?? 0,
+            createdAt: issue.created_at,
+            isPullRequest: false,
+        };
+    });
+}
+export async function fetchAllOpenIssues(owner, repo) {
+    const kit = getOctokit();
+    return withRetry(async () => {
+        const issues = [];
+        const iterator = kit.paginate.iterator(kit.rest.issues.list, {
+            owner,
+            repo,
+            state: "open",
+            per_page: 100,
+        });
+        for await (const { data: page } of iterator) {
+            for (const issue of page) {
+                // Filter out pull requests (GitHub Issues API returns both)
+                if (issue.pull_request)
+                    continue;
+                issues.push({
+                    number: issue.number,
+                    title: issue.title,
+                    body: issue.body ?? "",
+                    user: issue.user?.login ?? "unknown",
+                    labels: issue.labels
+                        .map((l) => (typeof l === "string" ? l : l.name ?? ""))
+                        .filter(Boolean),
+                    milestone: issue.milestone?.title ?? null,
+                    assignees: (issue.assignees ?? []).map((a) => a.login),
+                    commentCount: issue.comments,
+                    reactionCount: issue.reactions?.total_count ?? 0,
+                    createdAt: issue.created_at,
+                    isPullRequest: false,
+                });
+            }
+            console.log(`[GitHub API] Fetched ${issues.length} open issues so far...`);
+        }
+        console.log(`[GitHub API] Total open issues fetched: ${issues.length}`);
+        return issues;
+    });
+}
 export async function fetchFileFromRepo(owner, repo, path) {
     const kit = getOctokit();
     try {
@@ -121,6 +219,23 @@ export async function createIssue(owner, repo, title, body, labels) {
         logRateLimit(headers);
         console.log(`[GitHub API] Issue #${data.number} created`);
         return data.number;
+    });
+}
+export async function createLabelIfMissing(owner, repo, name, color = "ededed") {
+    const kit = getOctokit();
+    return withRetry(async () => {
+        try {
+            await kit.rest.issues.createLabel({ owner, repo, name, color });
+            console.log(`[GitHub API] Label "${name}" created`);
+        }
+        catch (err) {
+            const status = err.status;
+            if (status === 422) {
+                // Label already exists — nothing to do
+                return;
+            }
+            throw err;
+        }
     });
 }
 export async function postComment(owner, repo, prNumber, body) {

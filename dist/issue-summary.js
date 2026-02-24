@@ -1,52 +1,55 @@
 const GITHUB_BODY_LIMIT = 65536;
 const SECTION_ROW_LIMIT = 50;
-/** Truncate text to max chars, appending "…" if trimmed. */
 function truncate(text, max) {
-    return text.length > max ? text.slice(0, max) + "…" : text;
+    return text.length > max ? text.slice(0, max) + "\u2026" : text;
 }
-/** Build a human-readable list of quality issues from the breakdown. */
 function qualityIssues(entry) {
     const b = entry.qualityBreakdown;
     if (!b)
-        return "—";
+        return "\u2014";
     const issues = [];
     if (b.hasDescription < 1)
         issues.push("no description");
-    if (b.followsFormat === 0)
-        issues.push("no conventional title");
-    if (b.diffSize !== undefined && b.diffSize < 1)
-        issues.push("too large");
-    if (b.singleTopic !== undefined && b.singleTopic < 1)
-        issues.push("too many files");
-    return issues.length > 0 ? issues.join(", ") : "—";
+    if (b.hasReproSteps < 1)
+        issues.push("no repro steps");
+    if (b.hasLabels < 1)
+        issues.push("no labels");
+    if (b.followsTemplate < 1)
+        issues.push("no template");
+    return issues.length > 0 ? issues.join(", ") : "\u2014";
 }
-export function buildSummaryIssue(result) {
-    const title = `ClawTriage Batch Report — ${result.repo} — ${result.timestamp.split("T")[0]}`;
+function formatLabels(labels) {
+    if (labels.length === 0)
+        return "\u2014";
+    return labels.slice(0, 3).map((l) => `\`${l}\``).join(" ");
+}
+export function buildIssueSummaryIssue(result) {
+    const title = `ClawTriage Issue Batch Report \u2014 ${result.repo} \u2014 ${result.timestamp.split("T")[0]}`;
     const { stats, clusters, entries } = result;
     const lines = [];
-    lines.push(`## ClawTriage Batch Triage Report\n`);
+    lines.push(`## ClawTriage Issue Batch Triage Report\n`);
     lines.push(`**Repository:** ${result.repo}`);
-    lines.push(`**PRs analyzed:** ${result.totalPRs}`);
+    lines.push(`**Issues analyzed:** ${result.totalIssues}`);
     lines.push(`**Run date:** ${result.timestamp}\n`);
     // Summary table
     lines.push(`### Summary\n`);
     lines.push(`| Metric | Count |`);
     lines.push(`|---|---|`);
-    lines.push(`| Total PRs | ${stats.totalPRs} |`);
-    lines.push(`| Duplicate clusters | ${stats.duplicateClusters} (${stats.duplicatePRs} PRs) |`);
+    lines.push(`| Total issues | ${stats.totalIssues} |`);
+    lines.push(`| Duplicate clusters | ${stats.duplicateClusters} (${stats.duplicateIssues} issues) |`);
     lines.push(`| Avg quality score | ${stats.avgQuality}/10 |`);
     lines.push(`| Vision: fits | ${stats.visionFits} |`);
     lines.push(`| Vision: strays | ${stats.visionStrays} |`);
     lines.push(`| Vision: rejects | ${stats.visionRejects} |`);
     lines.push(``);
-    // Build cluster canonical map: member PR → canonical PR
+    // Build cluster canonical map
     const clusterCanonicalMap = new Map();
     for (const cluster of clusters) {
         for (const member of cluster.members) {
             clusterCanonicalMap.set(member, cluster.canonical);
         }
     }
-    // Duplicate clusters (capped)
+    // Duplicate clusters
     if (clusters.length > 0) {
         const shownClusters = clusters.slice(0, SECTION_ROW_LIMIT);
         const clusterSuffix = clusters.length > SECTION_ROW_LIMIT
@@ -55,57 +58,57 @@ export function buildSummaryIssue(result) {
         lines.push(`### Duplicate Clusters${clusterSuffix}\n`);
         const entryMap = new Map();
         for (const e of entries)
-            entryMap.set(e.prNumber, e);
+            entryMap.set(e.issueNumber, e);
         shownClusters.forEach((cluster, i) => {
-            lines.push(`**Cluster ${i + 1}** (avg similarity: ${Math.round(cluster.avgSimilarity * 100)}%) — Canonical: #${cluster.canonical}`);
+            lines.push(`**Cluster ${i + 1}** (avg similarity: ${Math.round(cluster.avgSimilarity * 100)}%) \u2014 Canonical: #${cluster.canonical}`);
             for (const member of cluster.members) {
                 const entry = entryMap.get(member);
-                const memberTitle = entry ? entry.title : `PR #${member}`;
+                const memberTitle = entry ? entry.title : `Issue #${member}`;
                 lines.push(`- #${member}: ${memberTitle}`);
             }
             lines.push(``);
         });
     }
-    // Top merge candidates (capped) — Fix 3: add Vision column
+    // High Priority Issues
     const visionWasRun = entries.some((e) => e.visionAlignment !== "pending");
-    const mergeCandidates = visionWasRun
-        ? entries.filter((e) => e.qualityScore >= 8 && e.visionAlignment === "fits")
-        : entries.filter((e) => e.qualityScore >= 8);
-    mergeCandidates.sort((a, b) => b.qualityScore - a.qualityScore);
-    if (mergeCandidates.length > 0) {
-        const shown = mergeCandidates.slice(0, SECTION_ROW_LIMIT);
-        const suffix = mergeCandidates.length > SECTION_ROW_LIMIT
-            ? ` (top ${SECTION_ROW_LIMIT} of ${mergeCandidates.length})`
+    const highPriority = visionWasRun
+        ? entries.filter((e) => e.qualityScore >= 7 && e.visionAlignment === "fits")
+        : entries.filter((e) => e.qualityScore >= 7);
+    highPriority.sort((a, b) => b.qualityScore - a.qualityScore);
+    if (highPriority.length > 0) {
+        const shown = highPriority.slice(0, SECTION_ROW_LIMIT);
+        const suffix = highPriority.length > SECTION_ROW_LIMIT
+            ? ` (top ${SECTION_ROW_LIMIT} of ${highPriority.length})`
             : ``;
         const criteria = visionWasRun
-            ? `quality >= 8, vision fits`
-            : `quality >= 8, vision not run`;
-        lines.push(`### Top Merge Candidates (${criteria})${suffix}\n`);
-        lines.push(`| PR | Quality | Vision | Title |`);
-        lines.push(`|---|---|---|---|`);
+            ? `quality >= 7, vision fits`
+            : `quality >= 7, vision not run`;
+        lines.push(`### High Priority Issues (${criteria})${suffix}\n`);
+        lines.push(`| Issue | Quality | Labels | Vision | Title |`);
+        lines.push(`|---|---|---|---|---|`);
         for (const e of shown) {
-            lines.push(`| #${e.prNumber} | ${e.qualityScore}/10 | ${e.visionAlignment} | ${e.title} |`);
+            lines.push(`| #${e.issueNumber} | ${e.qualityScore}/10 | ${formatLabels(e.labels)} | ${e.visionAlignment} | ${e.title} |`);
         }
         lines.push(``);
     }
-    // Needs revision (capped) — Fix 6: add Issues column
-    const needsRevision = entries
+    // Needs More Info
+    const needsInfo = entries
         .filter((e) => e.qualityScore < 4)
         .sort((a, b) => a.qualityScore - b.qualityScore);
-    if (needsRevision.length > 0) {
-        const shown = needsRevision.slice(0, SECTION_ROW_LIMIT);
-        const suffix = needsRevision.length > SECTION_ROW_LIMIT
-            ? ` (worst ${SECTION_ROW_LIMIT} of ${needsRevision.length})`
+    if (needsInfo.length > 0) {
+        const shown = needsInfo.slice(0, SECTION_ROW_LIMIT);
+        const suffix = needsInfo.length > SECTION_ROW_LIMIT
+            ? ` (worst ${SECTION_ROW_LIMIT} of ${needsInfo.length})`
             : ``;
-        lines.push(`### Needs Revision (quality < 4)${suffix}\n`);
-        lines.push(`| PR | Quality | Issues | Title |`);
+        lines.push(`### Needs More Info (quality < 4)${suffix}\n`);
+        lines.push(`| Issue | Quality | Issues | Title |`);
         lines.push(`|---|---|---|---|`);
         for (const e of shown) {
-            lines.push(`| #${e.prNumber} | ${e.qualityScore}/10 | ${qualityIssues(e)} | ${e.title} |`);
+            lines.push(`| #${e.issueNumber} | ${e.qualityScore}/10 | ${qualityIssues(e)} | ${e.title} |`);
         }
         lines.push(``);
     }
-    // Vision rejects (capped) — Fix 2: truncate reason
+    // Vision rejects
     const visionRejects = entries.filter((e) => e.visionAlignment === "rejects");
     if (visionRejects.length > 0) {
         const shown = visionRejects.slice(0, SECTION_ROW_LIMIT);
@@ -113,34 +116,31 @@ export function buildSummaryIssue(result) {
             ? ` (first ${SECTION_ROW_LIMIT} of ${visionRejects.length})`
             : ``;
         lines.push(`### Vision Rejects${suffix}\n`);
-        lines.push(`| PR | Reason | Title |`);
+        lines.push(`| Issue | Reason | Title |`);
         lines.push(`|---|---|---|`);
         for (const e of shown) {
-            lines.push(`| #${e.prNumber} | ${truncate(e.visionReason, 120)} | ${e.title} |`);
+            lines.push(`| #${e.issueNumber} | ${truncate(e.visionReason, 120)} | ${e.title} |`);
         }
         lines.push(``);
     }
-    // Full triage table — truncated to stay within GitHub body limit
-    const FOOTER = `---\n*Generated by [ClawTriage](https://github.com/GriffinAtlas/clawtriage) — batch mode*`;
-    // Fix 4: replace cluster index with canonical PR ref
+    // Full triage table
+    const FOOTER = `---\n*Generated by [ClawTriage](https://github.com/GriffinAtlas/clawtriage) \u2014 issue batch mode*`;
     const tableRows = [];
     for (const e of entries) {
-        const canonical = clusterCanonicalMap.get(e.prNumber);
+        const canonical = clusterCanonicalMap.get(e.issueNumber);
         const dupeLabel = canonical !== undefined ? `Dupe of #${canonical}` : "-";
-        tableRows.push(`| #${e.prNumber} | ${e.qualityScore} | ${e.visionAlignment} | ${dupeLabel} | ${e.recommendedAction} | ${e.title} |`);
+        tableRows.push(`| #${e.issueNumber} | ${e.qualityScore} | ${formatLabels(e.labels)} | ${e.visionAlignment} | ${dupeLabel} | ${e.recommendedAction} | ${e.title} |`);
     }
-    // Fix 5: compute included rows first, then build header with correct count
     const tableHeaderBase = [
         `### Full Triage Table\n`,
         `<details>`,
     ];
     const tableColumnHeader = [
-        `| PR | Quality | Vision | Dupes | Action | Title |`,
-        `|---|---|---|---|---|---|`,
+        `| Issue | Quality | Labels | Vision | Dupes | Action | Title |`,
+        `|---|---|---|---|---|---|---|`,
     ];
     const tableFooter = [`\n</details>\n`];
-    // Estimate budget with a placeholder summary line
-    const placeholderSummary = `<summary>All ${entries.length} PRs</summary>\n`;
+    const placeholderSummary = `<summary>All ${entries.length} issues</summary>\n`;
     const headerParts = [...tableHeaderBase, placeholderSummary, ...tableColumnHeader];
     const preambleLength = lines.join("\n").length;
     const footerLength = FOOTER.length;
@@ -165,17 +165,16 @@ export function buildSummaryIssue(result) {
         }
         truncated = true;
         rowLines.push(``);
-        rowLines.push(`*... truncated (${includedCount}/${entries.length} PRs shown). Full data available in batch JSON output.*`);
+        rowLines.push(`*... truncated (${includedCount}/${entries.length} issues shown). Full data available in batch JSON output.*`);
     }
     else {
-        rowLines = [`*Table omitted — summary sections exceeded size limit. Full data available in batch JSON output.*`];
+        rowLines = [`*Table omitted \u2014 summary sections exceeded size limit. Full data available in batch JSON output.*`];
         includedCount = 0;
         truncated = true;
     }
-    // Build the actual summary tag with correct count
     const summaryLabel = truncated
-        ? `${includedCount} of ${entries.length} PRs (truncated)`
-        : `All ${entries.length} PRs`;
+        ? `${includedCount} of ${entries.length} issues (truncated)`
+        : `All ${entries.length} issues`;
     lines.push(...tableHeaderBase);
     lines.push(`<summary>${summaryLabel}</summary>\n`);
     lines.push(...tableColumnHeader);

@@ -9,6 +9,8 @@
   "scripts": {
     "triage": "tsx src/index.ts triage",
     "batch": "tsx src/index.ts batch",
+    "issue-triage": "tsx src/index.ts issue-triage",
+    "issue-batch": "tsx src/index.ts issue-batch",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

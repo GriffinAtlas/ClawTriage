@@ -1,0 +1,234 @@
+import type {
+  CachedEntry,
+  EmbeddingCache,
+  SimilarIssue,
+  IssueTriageResult,
+} from "./types.js";
+import { fetchIssue, fetchAllOpenIssues } from "./github.js";
+import {
+  sanitize,
+  generateEmbedding,
+  batchEmbed,
+  cosineSimilarity,
+} from "./embeddings.js";
+import { loadCache, saveCache, upsertEntry } from "./cache.js";
+import { scoreIssue } from "./issue-quality.js";
+import { fetchVisionDoc } from "./vision.js";
+import { checkIssueAlignment } from "./issue-vision.js";
+
+const DUPLICATE_THRESHOLD = 0.9;
+const CACHE_MAX_AGE_MS = 60 * 60 * 1000;
+
+export function isIssueCacheStale(cache: EmbeddingCache): boolean {
+  if (!cache.lastRebuilt) return true;
+  return Date.now() - new Date(cache.lastRebuilt).getTime() > CACHE_MAX_AGE_MS;
+}
+
+async function rebuildIssueCache(
+  owner: string,
+  repo: string,
+  cachePath: string,
+): Promise<EmbeddingCache> {
+  console.log("[Issue Triage] Cache is stale or missing — rebuilding...");
+
+  const allIssues = await fetchAllOpenIssues(owner, repo);
+  const texts = allIssues.map((issue) =>
+    sanitize(`${issue.title} ${issue.body.slice(0, 500)}`),
+  );
+
+  let embeddings: Map<number, number[]>;
+  try {
+    embeddings = await batchEmbed(texts);
+  } catch (err) {
+    console.error(`[Issue Triage] Embedding failed during cache rebuild:`, (err as Error).message);
+    embeddings = new Map();
+  }
+  const entries: CachedEntry[] = [];
+  const now = new Date().toISOString();
+
+  for (let i = 0; i < allIssues.length; i++) {
+    const embedding = embeddings.get(i);
+    if (!embedding) continue;
+    entries.push({
+      number: allIssues[i].number,
+      title: allIssues[i].title,
+      body: allIssues[i].body.slice(0, 500),
+      embedding,
+      cachedAt: now,
+    });
+  }
+
+  const cache: EmbeddingCache = {
+    version: 1,
+    lastRebuilt: now,
+    prCount: entries.length,
+    entries,
+  };
+
+  saveCache(cachePath, cache);
+  console.log(`[Issue Triage] Cache rebuilt with ${entries.length} entries`);
+  return cache;
+}
+
+export function findSimilarIssues(
+  targetEmbedding: number[],
+  targetNumber: number,
+  entries: CachedEntry[],
+  threshold: number,
+): SimilarIssue[] {
+  return entries
+    .filter((e) => e.number !== targetNumber && e.embedding.length > 0)
+    .map((e) => ({
+      number: e.number,
+      score: Math.round(cosineSimilarity(targetEmbedding, e.embedding) * 1000) / 1000,
+      title: e.title,
+    }))
+    .filter((s) => s.score >= threshold)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 5);
+}
+
+export function deriveIssueAction(
+  isDuplicate: boolean,
+  qualityScore: number,
+  visionAlignment: "fits" | "strays" | "rejects",
+): IssueTriageResult["recommendedAction"] {
+  if (isDuplicate && qualityScore < 5) return "wontfix";
+  if (isDuplicate) return "review_duplicates";
+  if (visionAlignment === "rejects") return "wontfix";
+  if (qualityScore >= 8 && visionAlignment === "fits") return "prioritize";
+  if (qualityScore < 4) return "needs_info";
+  return "prioritize";
+}
+
+const ACTION_DISPLAY: Record<IssueTriageResult["recommendedAction"], { emoji: string; label: string }> = {
+  prioritize: { emoji: "\u2705", label: "Prioritize" },
+  review_duplicates: { emoji: "\uD83D\uDD01", label: "Review Duplicates" },
+  needs_info: { emoji: "\u26A0\uFE0F", label: "Needs More Info" },
+  wontfix: { emoji: "\u274C", label: "Won't Fix" },
+  flag: { emoji: "\uD83D\uDEA9", label: "Flagged" },
+};
+
+const VISION_EMOJI: Record<IssueTriageResult["visionAlignment"], string> = {
+  fits: "\u2705",
+  strays: "\uD83D\uDFE1",
+  rejects: "\u274C",
+};
+
+export function buildIssueDraftComment(result: Omit<IssueTriageResult, "draftComment">): string {
+  const { isDuplicate, duplicateOf, qualityScore, qualityBreakdown: qb, visionAlignment, visionReason, recommendedAction } = result;
+  const action = ACTION_DISPLAY[recommendedAction];
+  const lines: string[] = [];
+
+  lines.push(`## \uD83E\uDD80 ClawTriage Issue Report\n`);
+  lines.push(`**Recommendation:** ${action.emoji} ${action.label}\n`);
+
+  lines.push(`### Semantic Deduplication\n`);
+  if (isDuplicate) {
+    lines.push(`\u26A0\uFE0F **Potential duplicate detected!**\n`);
+  } else if (duplicateOf.length > 0) {
+    lines.push(`Similar issues found (but below duplicate threshold):\n`);
+  } else {
+    lines.push(`No similar issues found.\n`);
+  }
+  if (duplicateOf.length > 0) {
+    lines.push(`| Issue | Similarity | Title |`);
+    lines.push(`|---|---|---|`);
+    for (const sim of duplicateOf) {
+      lines.push(`| #${sim.number} | ${(sim.score * 100).toFixed(1)}% | ${sim.title} |`);
+    }
+    lines.push(``);
+  }
+
+  lines.push(`### Quality Score: ${qualityScore}/10\n`);
+  lines.push(`| Signal | Score |`);
+  lines.push(`|---|---|`);
+  lines.push(`| Description | ${qb.hasDescription}/2.5 |`);
+  lines.push(`| Repro Steps | ${qb.hasReproSteps}/2.5 |`);
+  lines.push(`| Labels | ${qb.hasLabels}/2.5 |`);
+  lines.push(`| Template | ${qb.followsTemplate}/2.5 |`);
+  lines.push(``);
+
+  lines.push(`### VISION.md Alignment: ${VISION_EMOJI[visionAlignment]} ${visionAlignment}\n`);
+  lines.push(`${visionReason}\n`);
+  lines.push(`---`);
+  lines.push(`*Generated by [ClawTriage](https://github.com/GriffinAtlas/clawtriage) — AI-powered issue triage*`);
+
+  return lines.join("\n");
+}
+
+export async function triageIssue(
+  issueNumber: number,
+  owner: string,
+  repo: string,
+  options: { cachePath: string; similarityThreshold: number },
+): Promise<IssueTriageResult> {
+  const { cachePath, similarityThreshold } = options;
+
+  let cache = loadCache(cachePath);
+  if (isIssueCacheStale(cache)) {
+    cache = await rebuildIssueCache(owner, repo, cachePath);
+  }
+
+  console.log(`[Issue Triage] Fetching issue #${issueNumber}...`);
+  const issue = await fetchIssue(owner, repo, issueNumber);
+  console.log(`[Issue Triage] Issue #${issueNumber}: "${issue.title}" by @${issue.user}`);
+
+  const targetText = sanitize(`${issue.title} ${issue.body}`).slice(0, 8000);
+  let targetEmbedding: number[];
+  try {
+    targetEmbedding = await generateEmbedding(targetText);
+  } catch (err) {
+    console.error(`[Issue Triage] Could not embed issue #${issueNumber}:`, err);
+    targetEmbedding = [];
+  }
+
+  let duplicateOf: SimilarIssue[] = [];
+  let isDuplicate = false;
+  if (targetEmbedding.length > 0) {
+    duplicateOf = findSimilarIssues(targetEmbedding, issueNumber, cache.entries, similarityThreshold);
+    isDuplicate = duplicateOf.length > 0 && duplicateOf[0].score >= DUPLICATE_THRESHOLD;
+
+    cache.entries = upsertEntry(cache.entries, {
+      number: issue.number,
+      title: issue.title,
+      body: issue.body.slice(0, 500),
+      embedding: targetEmbedding,
+      cachedAt: new Date().toISOString(),
+    });
+    cache.prCount = cache.entries.length;
+    saveCache(cachePath, cache);
+  }
+
+  const { score: qualityScore, breakdown: qualityBreakdown } = scoreIssue(issue);
+  console.log(`[Issue Triage] Quality score: ${qualityScore}/10`);
+
+  const visionDoc = await fetchVisionDoc(owner, repo);
+  let visionAlignment: "fits" | "strays" | "rejects";
+  let visionReason: string;
+  try {
+    const result = await checkIssueAlignment(issue.title, issue.body, issue.labels, visionDoc);
+    visionAlignment = result.alignment;
+    visionReason = result.reason;
+  } catch (err) {
+    console.error(`[Issue Triage] Vision alignment failed, degrading to "strays":`, (err as Error).message);
+    visionAlignment = "strays";
+    visionReason = `Vision check error: ${(err as Error).message}`;
+  }
+  console.log(`[Issue Triage] Vision alignment: ${visionAlignment} — ${visionReason}`);
+
+  const recommendedAction = deriveIssueAction(isDuplicate, qualityScore, visionAlignment);
+
+  const resultWithoutComment = {
+    issueNumber,
+    isDuplicate,
+    duplicateOf,
+    qualityScore,
+    qualityBreakdown,
+    visionAlignment,
+    visionReason,
+    recommendedAction,
+  };
+
+  return { ...resultWithoutComment, draftComment: buildIssueDraftComment(resultWithoutComment) };
+}

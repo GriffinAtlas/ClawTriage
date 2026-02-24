@@ -1,14 +1,14 @@
 import fs from "node:fs";
 import path from "node:path";
-import { fetchPR, waitIfRateLimited } from "./github.js";
-function emptyEnrichmentCache() {
+import { fetchIssue, waitIfRateLimited } from "./github.js";
+function emptyIssueEnrichmentCache() {
     return {
         version: 1,
         lastUpdated: "",
         entries: {},
     };
 }
-export function loadEnrichmentCache(cachePath) {
+export function loadIssueEnrichmentCache(cachePath) {
     try {
         const raw = fs.readFileSync(cachePath, "utf-8");
         const parsed = JSON.parse(raw);
@@ -19,54 +19,55 @@ export function loadEnrichmentCache(cachePath) {
             typeof parsed.entries === "object") {
             const cache = parsed;
             const entryCount = Object.keys(cache.entries).length;
-            console.log(`[Enrichment] Loaded ${entryCount} cached entries` +
+            console.log(`[Issue Enrichment] Loaded ${entryCount} cached entries` +
                 ` (last updated: ${cache.lastUpdated || "never"})`);
             return cache;
         }
-        console.warn("[Enrichment] Invalid cache format — returning empty cache");
-        return emptyEnrichmentCache();
+        console.warn("[Issue Enrichment] Invalid cache format — returning empty cache");
+        return emptyIssueEnrichmentCache();
     }
     catch (err) {
         const error = err;
         if (error.code === "ENOENT") {
-            console.log("[Enrichment] No cache file found — starting fresh");
+            console.log("[Issue Enrichment] No cache file found — starting fresh");
         }
         else {
-            console.warn("[Enrichment] Failed to load cache — starting fresh:", err);
+            console.warn("[Issue Enrichment] Failed to load cache — starting fresh:", err);
         }
-        return emptyEnrichmentCache();
+        return emptyIssueEnrichmentCache();
     }
 }
-export function saveEnrichmentCache(cachePath, cache) {
+export function saveIssueEnrichmentCache(cachePath, cache) {
     try {
         fs.mkdirSync(path.dirname(cachePath), { recursive: true });
         const tmpPath = cachePath + ".tmp";
         fs.writeFileSync(tmpPath, JSON.stringify(cache), "utf-8");
         fs.renameSync(tmpPath, cachePath);
         const entryCount = Object.keys(cache.entries).length;
-        console.log(`[Enrichment] Saved ${entryCount} entries to ${cachePath}`);
+        console.log(`[Issue Enrichment] Saved ${entryCount} entries to ${cachePath}`);
     }
     catch (err) {
-        console.error("[Enrichment] Failed to save cache:", err);
+        console.error("[Issue Enrichment] Failed to save cache:", err);
     }
 }
-export async function enrichPRs(owner, repo, prNumbers, cache, cachePath) {
-    const uncached = prNumbers.filter((n) => !(n in cache.entries));
-    console.log(`[Enrichment] ${prNumbers.length} PRs total, ${prNumbers.length - uncached.length} cached, ${uncached.length} to fetch`);
+export async function enrichIssues(owner, repo, issueNumbers, cache, cachePath) {
+    const uncached = issueNumbers.filter((n) => !(n in cache.entries));
+    console.log(`[Issue Enrichment] ${issueNumbers.length} issues total, ${issueNumbers.length - uncached.length} cached, ${uncached.length} to fetch`);
     let enrichedCount = 0;
     const startTime = Date.now();
-    for (const prNumber of uncached) {
+    for (const issueNumber of uncached) {
         try {
             await waitIfRateLimited();
-            const pr = await fetchPR(owner, repo, prNumber);
+            const issue = await fetchIssue(owner, repo, issueNumber);
             const data = {
-                additions: pr.additions,
-                deletions: pr.deletions,
-                changedFiles: pr.changedFiles,
-                fileList: pr.fileList,
+                commentCount: issue.commentCount,
+                reactionCount: issue.reactionCount,
+                linkedPRs: 0, // Timeline API too expensive; future enhancement
+                milestone: issue.milestone,
+                assignees: issue.assignees,
                 cachedAt: new Date().toISOString(),
             };
-            cache.entries[prNumber] = data;
+            cache.entries[issueNumber] = data;
             enrichedCount++;
             if (enrichedCount % 50 === 0) {
                 const elapsedSec = (Date.now() - startTime) / 1000;
@@ -75,19 +76,19 @@ export async function enrichPRs(owner, repo, prNumbers, cache, cachePath) {
                 const etaSec = Math.ceil(remaining / rate);
                 const etaMin = Math.floor(etaSec / 60);
                 const etaStr = etaMin > 0 ? `~${etaMin}m ${etaSec % 60}s remaining` : `~${etaSec}s remaining`;
-                console.log(`[Enrichment] Progress: ${enrichedCount}/${uncached.length} PRs enriched (${etaStr})`);
+                console.log(`[Issue Enrichment] Progress: ${enrichedCount}/${uncached.length} issues enriched (${etaStr})`);
                 cache.lastUpdated = new Date().toISOString();
-                saveEnrichmentCache(cachePath, cache);
+                saveIssueEnrichmentCache(cachePath, cache);
             }
         }
         catch (err) {
-            console.warn(`[Enrichment] Failed to enrich PR #${prNumber}:`, err);
+            console.warn(`[Issue Enrichment] Failed to enrich issue #${issueNumber}:`, err);
         }
     }
     if (enrichedCount > 0) {
         cache.lastUpdated = new Date().toISOString();
-        saveEnrichmentCache(cachePath, cache);
+        saveIssueEnrichmentCache(cachePath, cache);
     }
-    console.log(`[Enrichment] Done. ${enrichedCount} new PRs enriched.`);
+    console.log(`[Issue Enrichment] Done. ${enrichedCount} new issues enriched.`);
     return cache;
 }

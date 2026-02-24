@@ -1,39 +1,5 @@
-import Anthropic from "@anthropic-ai/sdk";
-import { z } from "zod";
-import { fetchFileFromRepo } from "./github.js";
-let anthropic = null;
-export function getAnthropic() {
-    if (!anthropic) {
-        const apiKey = process.env.ANTHROPIC_API_KEY;
-        if (!apiKey) {
-            throw new Error("ANTHROPIC_API_KEY environment variable is required");
-        }
-        anthropic = new Anthropic({ apiKey });
-    }
-    return anthropic;
-}
-export const AlignmentSchema = z.object({
-    alignment: z.enum(["fits", "strays", "rejects"]),
-    reason: z.string(),
-});
-let visionCache = {
-    fetched: false,
-    content: null,
-};
-export async function fetchVisionDoc(owner, repo) {
-    if (visionCache.fetched)
-        return visionCache.content;
-    const content = await fetchFileFromRepo(owner, repo, "VISION.md");
-    visionCache = { fetched: true, content };
-    if (content === null) {
-        console.log("[Vision] No VISION.md found in repository");
-    }
-    else {
-        console.log(`[Vision] Loaded VISION.md (${content.length} chars)`);
-    }
-    return content;
-}
-export async function checkAlignment(prTitle, prBody, fileList, visionDoc) {
+import { getAnthropic, AlignmentSchema } from "./vision.js";
+export async function checkIssueAlignment(issueTitle, issueBody, issueLabels, visionDoc) {
     if (visionDoc === null) {
         return { alignment: "strays", reason: "No VISION.md found in repository" };
     }
@@ -43,16 +9,16 @@ export async function checkAlignment(prTitle, prBody, fileList, visionDoc) {
         max_tokens: 200,
         messages: [{
                 role: "user",
-                content: `You are reviewing a pull request against a project's VISION.md.
+                content: `You are reviewing a GitHub issue against a project's VISION.md.
 
 VISION.md (first 3000 chars):
 ${visionDoc.slice(0, 3000)}
 
-PR Title: ${prTitle}
-PR Description: ${prBody.slice(0, 800)}
-Files changed: ${fileList.slice(0, 15).join(", ")}
+Issue Title: ${issueTitle}
+Issue Description: ${issueBody.slice(0, 800)}
+Labels: ${issueLabels.slice(0, 10).join(", ")}
 
-Does this PR fit the project vision?
+Does this issue align with the project vision? Is this a bug, feature request, or task within the project's stated scope?
 
 Use "fits" if clearly within scope, "strays" if tangential, "rejects" if outside scope.
 

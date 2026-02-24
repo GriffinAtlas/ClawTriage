@@ -27,27 +27,34 @@ export async function batchTriage(owner, repo, options) {
     if (needsEmbedding.length > 0) {
         console.log(`[Batch] ${needsEmbedding.length} PRs need embedding...`);
         const texts = needsEmbedding.map((pr) => sanitize(`${pr.title} ${pr.body.slice(0, 500)}`));
-        const embeddings = await batchEmbed(texts);
-        const now = new Date().toISOString();
-        for (let i = 0; i < needsEmbedding.length; i++) {
-            const embedding = embeddings.get(i);
-            if (!embedding)
-                continue;
-            cache.entries = upsertEntry(cache.entries, {
-                number: needsEmbedding[i].number,
-                title: needsEmbedding[i].title,
-                body: needsEmbedding[i].body.slice(0, 500),
-                embedding,
-                cachedAt: now,
-            });
+        try {
+            const embeddings = await batchEmbed(texts);
+            const now = new Date().toISOString();
+            for (let i = 0; i < needsEmbedding.length; i++) {
+                const embedding = embeddings.get(i);
+                if (!embedding)
+                    continue;
+                cache.entries = upsertEntry(cache.entries, {
+                    number: needsEmbedding[i].number,
+                    title: needsEmbedding[i].title,
+                    body: needsEmbedding[i].body.slice(0, 500),
+                    embedding,
+                    cachedAt: now,
+                });
+            }
+            cache.lastRebuilt = now;
+            cache.prCount = cache.entries.length;
+            saveCache(cachePath, cache);
         }
-        cache.lastRebuilt = now;
-        cache.prCount = cache.entries.length;
-        saveCache(cachePath, cache);
+        catch (err) {
+            console.error(`[Batch] Embedding failed, continuing without new embeddings:`, err.message);
+        }
     }
-    // 3. Cluster duplicates
+    // 3. Cluster duplicates (only among currently open PRs)
     console.log(`[Batch] Clustering duplicates (threshold: ${similarityThreshold})...`);
-    const clusters = clusterDuplicates(cache.entries, similarityThreshold);
+    const openPRNumbers = new Set(batchPRs.map((pr) => pr.number));
+    const openCacheEntries = cache.entries.filter((e) => openPRNumbers.has(e.number));
+    const clusters = clusterDuplicates(openCacheEntries, similarityThreshold);
     console.log(`[Batch] Found ${clusters.length} duplicate clusters`);
     // Build PR-to-cluster index
     const prClusterIndex = new Map();
@@ -79,12 +86,12 @@ export async function batchTriage(owner, repo, options) {
                 fileList: enriched.fileList,
                 createdAt: pr.createdAt,
             };
-            const { score } = scorePR(fullPR);
-            qualityResults.set(pr.number, { score, tier: "full" });
+            const { score, breakdown } = scorePR(fullPR);
+            qualityResults.set(pr.number, { score, tier: "full", breakdown });
         }
         else {
-            const { score } = scorePartialPR({ title: pr.title, body: pr.body });
-            qualityResults.set(pr.number, { score: Math.min(score, 5.0), tier: "partial" });
+            const { score, breakdown } = scorePartialPR({ title: pr.title, body: pr.body });
+            qualityResults.set(pr.number, { score: Math.min(score, 5.0), tier: "partial", breakdown });
         }
     }
     // 6. Vision alignment
@@ -93,19 +100,29 @@ export async function batchTriage(owner, repo, options) {
     if (!skipVision) {
         const visionDoc = await fetchVisionDoc(owner, repo);
         if (visionDoc) {
-            console.log(`[Batch] Submitting vision batch...`);
-            const fileListMap = new Map();
-            for (const pr of batchPRs) {
-                const enriched = enrichmentCache.entries[pr.number];
-                if (enriched) {
-                    fileListMap.set(pr.number, enriched.fileList);
+            try {
+                console.log(`[Batch] Submitting vision batch...`);
+                const fileListMap = new Map();
+                for (const pr of batchPRs) {
+                    const enriched = enrichmentCache.entries[pr.number];
+                    if (enriched) {
+                        fileListMap.set(pr.number, enriched.fileList);
+                    }
+                }
+                visionBatchId = await submitVisionBatch(batchPRs, fileListMap, visionDoc);
+                console.log(`[Batch] Polling vision batch ${visionBatchId}...`);
+                const results = await pollVisionBatch(visionBatchId);
+                for (const [prNum, result] of results) {
+                    visionResults.set(prNum, result);
                 }
             }
-            visionBatchId = await submitVisionBatch(batchPRs, fileListMap, visionDoc);
-            console.log(`[Batch] Polling vision batch ${visionBatchId}...`);
-            const results = await pollVisionBatch(visionBatchId);
-            for (const [prNum, result] of results) {
-                visionResults.set(prNum, result);
+            catch (err) {
+                console.error(`[Batch] Vision alignment failed, degrading gracefully:`, err.message);
+                for (const pr of batchPRs) {
+                    if (!visionResults.has(pr.number)) {
+                        visionResults.set(pr.number, { alignment: "error", reason: `Vision batch failed: ${err.message}` });
+                    }
+                }
             }
         }
         else {
@@ -120,7 +137,7 @@ export async function batchTriage(owner, repo, options) {
     // 7. Build entries
     console.log(`[Batch] Building triage entries...`);
     const entries = batchPRs.map((pr) => {
-        const quality = qualityResults.get(pr.number) ?? { score: 0, tier: "partial" };
+        const quality = qualityResults.get(pr.number) ?? { score: 0, tier: "partial", breakdown: undefined };
         const vision = visionResults.get(pr.number);
         const visionAlignment = (vision?.alignment ?? "pending");
         const visionReason = vision?.reason ?? "Vision not run";
@@ -136,6 +153,7 @@ export async function batchTriage(owner, repo, options) {
             visionReason,
             duplicateCluster: clusterIdx,
             recommendedAction,
+            qualityBreakdown: quality.breakdown,
         };
     });
     // 8. Compute stats

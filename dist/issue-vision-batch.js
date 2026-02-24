@@ -1,8 +1,5 @@
 import { getAnthropic, AlignmentSchema } from "./vision.js";
 function sanitizeText(text) {
-    // Strip all lone surrogates and control chars that break JSON serialization.
-    // Well-formed surrogate pairs (emoji etc.) survive because they form valid
-    // code points; lone high/low surrogates get replaced with U+FFFD.
     let out = "";
     for (let i = 0; i < text.length; i++) {
         const code = text.charCodeAt(i);
@@ -28,29 +25,28 @@ function sanitizeText(text) {
     }
     return out;
 }
-export async function submitVisionBatch(prs, fileListMap, visionDoc) {
+export async function submitIssueVisionBatch(issues, visionDoc) {
     const client = getAnthropic();
-    const requests = prs.map((pr) => {
-        const fileList = fileListMap.get(pr.number) ?? [];
-        const safeBody = sanitizeText(pr.body.slice(0, 800));
-        const safeTitle = sanitizeText(pr.title);
+    const requests = issues.map((issue) => {
+        const safeBody = sanitizeText(issue.body.slice(0, 800));
+        const safeTitle = sanitizeText(issue.title);
         return {
-            custom_id: `pr-${pr.number}`,
+            custom_id: `issue-${issue.number}`,
             params: {
                 model: "claude-haiku-4-5-20251001",
                 max_tokens: 200,
                 messages: [{
                         role: "user",
-                        content: `You are reviewing a pull request against a project's VISION.md.
+                        content: `You are reviewing a GitHub issue against a project's VISION.md.
 
 VISION.md (first 3000 chars):
 ${visionDoc.slice(0, 3000)}
 
-PR Title: ${safeTitle}
-PR Description: ${safeBody}
-Files changed: ${fileList.slice(0, 15).join(", ")}
+Issue Title: ${safeTitle}
+Issue Description: ${safeBody}
+Labels: ${issue.labels.slice(0, 10).join(", ")}
 
-Does this PR fit the project vision?
+Does this issue align with the project vision? Is this a bug, feature request, or task within the project's stated scope?
 
 Use "fits" if clearly within scope, "strays" if tangential, "rejects" if outside scope.
 
@@ -60,22 +56,21 @@ Reply with ONLY valid JSON matching this schema:
             },
         };
     });
-    console.log(`[Vision Batch] Submitting batch with ${requests.length} requests...`);
+    console.log(`[Issue Vision Batch] Submitting batch with ${requests.length} requests...`);
     const batch = await client.beta.messages.batches.create({ requests });
-    console.log(`[Vision Batch] Batch created: ${batch.id} (${requests.length} requests)`);
+    console.log(`[Issue Vision Batch] Batch created: ${batch.id} (${requests.length} requests)`);
     return batch.id;
 }
-export async function pollVisionBatch(batchId) {
+export async function pollIssueVisionBatch(batchId) {
     const client = getAnthropic();
     const results = new Map();
-    // Poll until batch ends, with retry on transient failures
     const MAX_CONSECUTIVE_FAILURES = 5;
-    const MAX_POLL_DURATION_MS = 60 * 60 * 1000; // 1 hour overall timeout
+    const MAX_POLL_DURATION_MS = 60 * 60 * 1000;
     let consecutiveFailures = 0;
     const pollStart = Date.now();
     while (true) {
         if (Date.now() - pollStart > MAX_POLL_DURATION_MS) {
-            throw new Error(`Vision batch polling timed out after ${MAX_POLL_DURATION_MS / 60000} minutes`);
+            throw new Error(`Issue vision batch polling timed out after ${MAX_POLL_DURATION_MS / 60000} minutes`);
         }
         let batch;
         try {
@@ -84,25 +79,24 @@ export async function pollVisionBatch(batchId) {
         }
         catch (err) {
             consecutiveFailures++;
-            console.warn(`[Vision Batch] Poll failed (${consecutiveFailures}/${MAX_CONSECUTIVE_FAILURES}):`, err.message);
+            console.warn(`[Issue Vision Batch] Poll failed (${consecutiveFailures}/${MAX_CONSECUTIVE_FAILURES}):`, err.message);
             if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-                throw new Error(`Vision batch polling failed after ${MAX_CONSECUTIVE_FAILURES} consecutive errors: ${err.message}`);
+                throw new Error(`Issue vision batch polling failed after ${MAX_CONSECUTIVE_FAILURES} consecutive errors: ${err.message}`);
             }
             await new Promise((r) => setTimeout(r, 30_000));
             continue;
         }
         const counts = batch.request_counts;
-        console.log(`[Vision Batch] Batch ${batchId}: ${counts.succeeded}/${counts.succeeded + counts.errored + counts.canceled + counts.expired + counts.processing} succeeded, ${counts.processing} processing`);
+        console.log(`[Issue Vision Batch] Batch ${batchId}: ${counts.succeeded}/${counts.succeeded + counts.errored + counts.canceled + counts.expired + counts.processing} succeeded, ${counts.processing} processing`);
         if (batch.processing_status === "ended") {
             break;
         }
         await new Promise((r) => setTimeout(r, 30_000));
     }
-    // Stream results
-    console.log(`[Vision Batch] Streaming results for batch ${batchId}...`);
+    console.log(`[Issue Vision Batch] Streaming results for batch ${batchId}...`);
     const decoder = await client.beta.messages.batches.results(batchId);
     for await (const entry of decoder) {
-        const prNumber = parseInt(entry.custom_id.replace("pr-", ""), 10);
+        const issueNumber = parseInt(entry.custom_id.replace("issue-", ""), 10);
         if (entry.result.type === "succeeded") {
             const textBlock = entry.result.message.content.find((block) => block.type === "text");
             if (textBlock && textBlock.type === "text") {
@@ -111,7 +105,7 @@ export async function pollVisionBatch(batchId) {
                     try {
                         const parsed = AlignmentSchema.safeParse(JSON.parse(jsonMatch[0]));
                         if (parsed.success) {
-                            results.set(prNumber, parsed.data);
+                            results.set(issueNumber, parsed.data);
                             continue;
                         }
                     }
@@ -120,15 +114,15 @@ export async function pollVisionBatch(batchId) {
                     }
                 }
             }
-            results.set(prNumber, { alignment: "error", reason: "Unparseable model response" });
+            results.set(issueNumber, { alignment: "error", reason: "Unparseable model response" });
         }
         else {
-            results.set(prNumber, {
+            results.set(issueNumber, {
                 alignment: "error",
                 reason: `Batch request ${entry.result.type}`,
             });
         }
     }
-    console.log(`[Vision Batch] Got ${results.size} results`);
+    console.log(`[Issue Vision Batch] Got ${results.size} results`);
     return results;
 }

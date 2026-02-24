@@ -1,5 +1,5 @@
 import { Octokit } from "@octokit/rest";
-import type { PR } from "./types.js";
+import type { PR, Issue } from "./types.js";
 
 let octokit: Octokit | null = null;
 
@@ -156,6 +156,87 @@ export async function fetchAllOpenPRs(
 
     console.log(`[GitHub API] Total open PRs fetched: ${prs.length}`);
     return prs;
+  });
+}
+
+export async function fetchIssue(
+  owner: string,
+  repo: string,
+  issueNumber: number,
+): Promise<Issue> {
+  const kit = getOctokit();
+
+  return withRetry(async () => {
+    const { data: issue, headers } = await kit.rest.issues.get({
+      owner,
+      repo,
+      issue_number: issueNumber,
+    });
+    logRateLimit(headers as Record<string, string | undefined>);
+
+    if (issue.pull_request) {
+      throw new Error(`#${issueNumber} is a pull request, not an issue`);
+    }
+
+    return {
+      number: issue.number,
+      title: issue.title,
+      body: issue.body ?? "",
+      user: issue.user?.login ?? "unknown",
+      labels: issue.labels
+        .map((l) => (typeof l === "string" ? l : l.name ?? ""))
+        .filter(Boolean),
+      milestone: issue.milestone?.title ?? null,
+      assignees: (issue.assignees ?? []).map((a) => a.login),
+      commentCount: issue.comments,
+      reactionCount: issue.reactions?.total_count ?? 0,
+      createdAt: issue.created_at,
+      isPullRequest: false,
+    };
+  });
+}
+
+export async function fetchAllOpenIssues(
+  owner: string,
+  repo: string,
+): Promise<Issue[]> {
+  const kit = getOctokit();
+
+  return withRetry(async () => {
+    const issues: Issue[] = [];
+    const iterator = kit.paginate.iterator(kit.rest.issues.list, {
+      owner,
+      repo,
+      state: "open",
+      per_page: 100,
+    });
+
+    for await (const { data: page } of iterator) {
+      for (const issue of page) {
+        // Filter out pull requests (GitHub Issues API returns both)
+        if (issue.pull_request) continue;
+
+        issues.push({
+          number: issue.number,
+          title: issue.title,
+          body: issue.body ?? "",
+          user: issue.user?.login ?? "unknown",
+          labels: issue.labels
+            .map((l) => (typeof l === "string" ? l : l.name ?? ""))
+            .filter(Boolean),
+          milestone: issue.milestone?.title ?? null,
+          assignees: (issue.assignees ?? []).map((a) => a.login),
+          commentCount: issue.comments,
+          reactionCount: issue.reactions?.total_count ?? 0,
+          createdAt: issue.created_at,
+          isPullRequest: false,
+        });
+      }
+      console.log(`[GitHub API] Fetched ${issues.length} open issues so far...`);
+    }
+
+    console.log(`[GitHub API] Total open issues fetched: ${issues.length}`);
+    return issues;
   });
 }
 
